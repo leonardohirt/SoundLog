@@ -1,86 +1,82 @@
-import React, { useState } from 'react';
-import { Star } from 'lucide-react';
+﻿import React, { useState } from 'react';
 
-export function StarRating({ rating = 0, onRatingChange, readonly = false, size = 18 }) {
+export function StarRating({ rating = 0, onRate, readonly = false, size = 20 }) {
   const [hoverRating, setHoverRating] = useState(0);
 
   const displayRating = hoverRating || rating;
+  const stars = [1, 2, 3, 4, 5];
 
   const handleClick = (val) => {
-    if (!readonly && onRatingChange) {
-      onRatingChange(val);
+    if (!readonly && onRate) {
+      onRate(val);
     }
   };
 
-  const stars = [1, 2, 3, 4, 5];
-
   return (
-    <div className="star-rating" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+    <div className="inline-flex items-center gap-1 select-none" style={{ cursor: readonly ? 'default' : 'pointer' }}>
       {stars.map((starIndex) => {
         const fillAmount = Math.max(0, Math.min(1, displayRating - (starIndex - 1)));
-        const isHalf = fillAmount > 0 && fillAmount < 1;
-        const isFull = fillAmount === 1;
+        const isHalf = fillAmount >= 0.25 && fillAmount < 0.75;
+        const isFull = fillAmount >= 0.75;
 
         return (
           <div
             key={starIndex}
-            style={{
-              position: 'relative',
-              width: `${size}px`,
-              height: `${size}px`,
-              cursor: readonly ? 'default' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0
-            }}
+            className="relative flex items-center justify-center"
+            style={{ width: `${size}px`, height: `${size}px` }}
             onClick={(e) => {
               if (readonly) return;
               const rect = e.currentTarget.getBoundingClientRect();
               const clickPos = (e.clientX - rect.left) / rect.width;
-              const value = clickPos <= 0.5 ? starIndex - 0.5 : starIndex;
-              handleClick(value);
+              const val = clickPos <= 0.5 ? starIndex - 0.5 : starIndex;
+              handleClick(val);
             }}
             onMouseMove={(e) => {
               if (readonly) return;
               const rect = e.currentTarget.getBoundingClientRect();
               const hoverPos = (e.clientX - rect.left) / rect.width;
-              const value = hoverPos <= 0.5 ? starIndex - 0.5 : starIndex;
-              setHoverRating(value);
+              const val = hoverPos <= 0.5 ? starIndex - 0.5 : starIndex;
+              setHoverRating(val);
             }}
             onMouseLeave={() => !readonly && setHoverRating(0)}
           >
-            {/* Background Empty Star */}
-            <Star size={size} color="#343a40" fill="none" style={{ display: 'block', minWidth: `${size}px` }} />
-            
-            {/* Filled Star overlay with fixed aspect ratio */}
+            {/* Base Outline Star */}
+            <svg
+              width={size}
+              height={size}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#D3CDC0"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+
+            {/* Filled Overlay */}
             {(isFull || isHalf) && (
               <div
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: isFull ? '100%' : '50%',
-                  height: '100%',
-                  overflow: 'hidden',
-                  pointerEvents: 'none',
-                  display: 'flex',
-                  alignItems: 'center'
-                }}
+                className="absolute inset-0 overflow-hidden pointer-events-none"
+                style={{ width: isHalf ? '50%' : '100%' }}
               >
-                <Star size={size} color="#ffb703" fill="#ffb703" style={{ minWidth: `${size}px`, width: `${size}px`, display: 'block', flexShrink: 0 }} />
+                <svg
+                  width={size}
+                  height={size}
+                  viewBox="0 0 24 24"
+                  fill="#BA3822"
+                  stroke="#BA3822"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
               </div>
             )}
           </div>
         );
       })}
-      
-      {/* Display numeric rating tag */}
-      {displayRating > 0 && (
-        <span style={{ fontSize: '11px', fontWeight: '700', color: '#ffb703', marginLeft: '4px' }}>
-          {Number(displayRating).toFixed(1)}
-        </span>
-      )}
     </div>
   );
 }

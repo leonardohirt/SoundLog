@@ -1,28 +1,29 @@
-import React from 'react';
-import { Home, Search, BookOpen, List, User } from 'lucide-react';
+﻿import React from 'react';
 
-export function BottomNav({ activeTab, setActiveTab }) {
-  const navItems = [
-    { id: 'home', label: 'Início', icon: Home },
-    { id: 'search', label: 'Buscar', icon: Search },
-    { id: 'diary', label: 'Diário', icon: BookOpen },
-    { id: 'lists', label: 'Listas', icon: List },
-    { id: 'profile', label: 'Perfil', icon: User },
+export function BottomNav({ activeTab, onSelectTab }) {
+  const tabs = [
+    { id: 'home', label: 'Início', dot: '●' },
+    { id: 'explore', label: 'Explorar', dot: '○' },
+    { id: 'reviews', label: 'Avaliações', dot: '○' },
+    { id: 'lists', label: 'Listas', dot: '○' },
+    { id: 'diary', label: 'Diário', dot: '○' },
+    { id: 'profile', label: 'Perfil', dot: '○' }
   ];
 
   return (
-    <nav className="bottom-nav">
-      {navItems.map((item) => {
-        const Icon = item.icon;
-        const isActive = activeTab === item.id;
+    <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-[#FAF8F5] border-t-2 border-[#151413] px-2 py-2 flex justify-around items-center font-mono-meta text-[11px] shadow-lg">
+      {tabs.map((tab) => {
+        const isActive = activeTab === tab.id;
         return (
           <button
-            key={item.id}
-            className={`nav-item ${isActive ? 'active' : ''}`}
-            onClick={() => setActiveTab(item.id)}
+            key={tab.id}
+            onClick={() => onSelectTab(tab.id)}
+            className={`flex flex-col items-center gap-0.5 py-1 px-2 transition-colors ${
+              isActive ? 'text-[#BA3822] font-bold' : 'text-[#58534C] hover:text-[#151413]'
+            }`}
           >
-            <Icon size={20} />
-            <span>{item.label}</span>
+            <span className="text-[9px] leading-none">{isActive ? '●' : '○'}</span>
+            <span className="text-[10px] uppercase tracking-wider">{tab.label}</span>
           </button>
         );
       })}

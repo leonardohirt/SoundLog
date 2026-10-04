@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('soundboxd_sb_url') || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('soundboxd_sb_key') || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('soundlog_sb_url') || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('soundlog_sb_key') || '';
 
 export const isSupabaseConfigured = () => {
   return (
@@ -27,354 +27,533 @@ export const generateUUID = () => {
   });
 };
 
-// Standard clean profile fallback (No hardcoded bio or favorite artist)
-const INITIAL_DEMO_PROFILE = {
-  id: generateUUID(),
-  username: 'ouvinte',
-  full_name: 'Usuário Soundboxd',
-  avatar_url: '',
-  bio: '',
-  favorite_artist: '',
-  favorite_genre: ''
-};
-
-const INITIAL_DEMO_REVIEWS = [
-  {
-    id: generateUUID(),
-    album_id: '1440857781',
-    album_title: 'Random Access Memories',
-    artist_name: 'Daft Punk',
-    cover_url: 'https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/a3/be/02/a3be020c-78db-b035-7140-52efebf00d23/886443927087.jpg/600x600bb.jpg',
-    release_year: '2013',
-    genre: 'Dance/Eletrônica',
-    rating: 5.0,
-    review_text: 'Uma obra-prima atemporal do groove e sintetizadores analógicos. Giorgio by Moroder é insano!',
-    listened_date: '2026-08-04',
-    is_relisten: true,
-    is_favorite: true,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: generateUUID(),
-    album_id: '1540328103',
-    album_title: 'Clube da Esquina',
-    artist_name: 'Milton Nascimento & Lô Borges',
-    cover_url: 'https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/80/c9/ed/80c9ed3d-a517-91fb-fb28-6bcfa12df93a/724349372124.jpg/600x600bb.jpg',
-    release_year: '1972',
-    genre: 'MPB / Rock Psicodélico',
-    rating: 5.0,
-    review_text: 'Um dos maiores discos da história da música mundial. O arranjo de harmonias e vocais é emocionante.',
-    listened_date: '2026-08-03',
-    is_relisten: false,
-    is_favorite: true,
-    created_at: new Date(Date.now() - 86400000).toISOString()
-  },
-  {
-    id: generateUUID(),
-    album_id: '1440872996',
-    album_title: 'Abbey Road',
-    artist_name: 'The Beatles',
-    cover_url: 'https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/91/9f/f0/919ff089-a297-c035-ef7c-faed4c2f1f0a/00602508017361.rgb.jpg/600x600bb.jpg',
-    release_year: '1969',
-    genre: 'Rock',
-    rating: 4.5,
-    review_text: 'O medley no lado B é o ápice técnico e criativo dos Beatles.',
-    listened_date: '2026-08-01',
-    is_relisten: true,
-    is_favorite: false,
-    created_at: new Date(Date.now() - 259200000).toISOString()
-  }
-];
-
-const INITIAL_DEMO_LISTS = [
-  {
-    id: generateUUID(),
-    title: 'Álbuns Essenciais para Ouvir de Madrugada',
-    description: 'Vibes noturnas, sintetizadores e MPB suave para se desligar do mundo.',
-    created_at: new Date().toISOString(),
-    items: [
-      { album_id: '1440857781', album_title: 'Random Access Memories', artist_name: 'Daft Punk', cover_url: 'https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/a3/be/02/a3be020c-78db-b035-7140-52efebf00d23/886443927087.jpg/600x600bb.jpg' },
-      { album_id: '1540328103', album_title: 'Clube da Esquina', artist_name: 'Milton Nascimento & Lô Borges', cover_url: 'https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/80/c9/ed/80c9ed3d-a517-91fb-fb28-6bcfa12df93a/724349372124.jpg/600x600bb.jpg' }
-    ]
-  }
-];
-
-// Profile storage helpers bound to active user session
+// ---------------------------------------------------------------------------
+// PROFILE STORAGE HELPERS
+// ---------------------------------------------------------------------------
 export const getLocalProfile = () => {
-  const sessionData = localStorage.getItem('soundboxd_session');
+  const sessionData = localStorage.getItem('soundlog_session');
   const session = sessionData ? JSON.parse(sessionData) : null;
-  const data = localStorage.getItem('soundboxd_profile');
+  const data = localStorage.getItem('soundlog_profile');
   
   if (data) {
-    const parsed = JSON.parse(data);
-    if (session && session.username && session.username !== 'visitante') {
-      return {
-        ...parsed,
-        full_name: session.full_name || parsed.full_name,
-        username: session.username || parsed.username
-      };
-    }
-    return parsed;
+    return JSON.parse(data);
   }
   
   if (session && session.username) {
     const userProfile = {
       id: session.id || generateUUID(),
       username: session.username,
-      full_name: session.full_name || 'Usuário Soundboxd',
+      full_name: session.full_name || session.display_name || session.username,
       avatar_url: session.avatar_url || '',
-      bio: session.bio || '',
-      favorite_artist: session.favorite_artist || '',
-      favorite_genre: session.favorite_genre || ''
+      bio: '',
+      location: '',
+      website: '',
+      favorite_artist: '',
+      favorite_genres: []
     };
-    localStorage.setItem('soundboxd_profile', JSON.stringify(userProfile));
+    localStorage.setItem('soundlog_profile', JSON.stringify(userProfile));
     return userProfile;
   }
 
-  localStorage.setItem('soundboxd_profile', JSON.stringify(INITIAL_DEMO_PROFILE));
-  return INITIAL_DEMO_PROFILE;
+  return null;
 };
 
 export const saveLocalProfile = (profileData) => {
-  const current = getLocalProfile();
+  const current = getLocalProfile() || {};
   const updated = { ...current, ...profileData };
-  localStorage.setItem('soundboxd_profile', JSON.stringify(updated));
+  localStorage.setItem('soundlog_profile', JSON.stringify(updated));
   return updated;
 };
 
-export const fetchProfile = async (sessionUser) => {
-  const session = sessionUser || (localStorage.getItem('soundboxd_session') ? JSON.parse(localStorage.getItem('soundboxd_session')) : null);
-  
-  if (isSupabaseConfigured() && supabase && session && session.username) {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .or(`username.eq.${session.username},id.eq.${session.id}`)
-        .limit(1);
-      if (!error && data && data.length > 0) {
-        const prof = { ...data[0], full_name: session.full_name || data[0].full_name, username: session.username || data[0].username };
-        saveLocalProfile(prof);
-        return prof;
-      }
-    } catch (err) {
-      console.warn('Supabase profile fetch error', err);
-    }
-  }
-  return getLocalProfile();
-};
-
-export const updateProfile = async (profileData) => {
-  saveLocalProfile(profileData);
-  if (isSupabaseConfigured() && supabase) {
-    try {
-      const payload = { ...profileData };
-      if (!payload.id || !payload.id.includes('-')) {
-        delete payload.id;
-      }
-      await supabase.from('profiles').upsert(payload);
-    } catch (err) {
-      console.warn('Supabase profile update error', err);
-    }
-  }
-  return profileData;
-};
-
-// Reviews storage helpers
+// ---------------------------------------------------------------------------
+// REVIEWS & RATINGS STORAGE HELPERS (SUPPORTS INDEPENDENT ALBUM & TRACK RATINGS)
+// ---------------------------------------------------------------------------
 export const getLocalReviews = () => {
-  const data = localStorage.getItem('soundboxd_reviews');
-  if (!data) {
-    localStorage.setItem('soundboxd_reviews', JSON.stringify(INITIAL_DEMO_REVIEWS));
-    return INITIAL_DEMO_REVIEWS;
-  }
-  return JSON.parse(data);
-};
-
-export const saveLocalReview = (newReview) => {
-  const reviews = getLocalReviews();
-  const index = reviews.findIndex(r => r.id === newReview.id || String(r.album_id) === String(newReview.album_id));
-  let updated;
-  if (index >= 0) {
-    updated = [...reviews];
-    updated[index] = { ...updated[index], ...newReview };
-  } else {
-    updated = [newReview, ...reviews];
-  }
-  localStorage.setItem('soundboxd_reviews', JSON.stringify(updated));
-  return updated;
-};
-
-export const deleteLocalReview = (id) => {
-  const reviews = getLocalReviews();
-  const updated = reviews.filter(r => r.id !== id);
-  localStorage.setItem('soundboxd_reviews', JSON.stringify(updated));
-  return updated;
-};
-
-// Track Ratings storage helpers
-export const getLocalTrackRatings = () => {
-  const data = localStorage.getItem('soundboxd_track_ratings');
-  return data ? JSON.parse(data) : {};
-};
-
-export const saveLocalTrackRating = (trackRatingData) => {
-  const ratings = getLocalTrackRatings();
-  const key = `${trackRatingData.album_id}_${trackRatingData.track_id}`;
-  ratings[key] = { ...ratings[key], ...trackRatingData };
-  localStorage.setItem('soundboxd_track_ratings', JSON.stringify(ratings));
-  return ratings;
-};
-
-export const deleteTrackRating = async (albumId, trackId) => {
-  const ratings = getLocalTrackRatings();
-  const key = `${albumId}_${trackId}`;
-  delete ratings[key];
-  localStorage.setItem('soundboxd_track_ratings', JSON.stringify(ratings));
-
-  if (isSupabaseConfigured() && supabase) {
+  const data = localStorage.getItem('soundlog_reviews');
+  if (data) {
     try {
-      await supabase
-        .from('track_ratings')
-        .delete()
-        .eq('album_id', String(albumId))
-        .eq('track_id', String(trackId));
-    } catch (err) {
-      console.warn('Supabase track rating delete error:', err);
+      return JSON.parse(data);
+    } catch {
+      return [];
     }
   }
-  return ratings;
+  return [];
 };
 
-export const fetchTrackRatings = async (albumId) => {
-  if (isSupabaseConfigured() && supabase && albumId) {
-    try {
-      const { data, error } = await supabase
-        .from('track_ratings')
-        .select('*')
-        .eq('album_id', String(albumId));
-      if (!error && data) {
-        const local = getLocalTrackRatings();
-        data.forEach(tr => {
-          local[`${tr.album_id}_${tr.track_id}`] = tr;
-        });
-        localStorage.setItem('soundboxd_track_ratings', JSON.stringify(local));
-        return local;
-      }
-    } catch (err) {
-      console.warn('Supabase track ratings fetch error', err);
-    }
-  }
-  return getLocalTrackRatings();
+export const saveLocalReviews = (reviews) => {
+  localStorage.setItem('soundlog_reviews', JSON.stringify(reviews));
 };
 
-export const saveTrackRating = async (trackRatingData) => {
-  saveLocalTrackRating(trackRatingData);
-  if (isSupabaseConfigured() && supabase) {
-    try {
-      const payload = {
-        album_id: String(trackRatingData.album_id),
-        track_id: String(trackRatingData.track_id),
-        track_name: trackRatingData.track_name,
-        artist_name: trackRatingData.artist_name || '',
-        rating: Number(trackRatingData.rating),
-        is_favorite: Boolean(trackRatingData.is_favorite)
-      };
-      await supabase.from('track_ratings').upsert(payload);
-    } catch (err) {
-      console.warn('Supabase track rating insert error:', err);
-    }
-  }
-  return trackRatingData;
-};
-
+// Lists storage helpers
 export const getLocalLists = () => {
-  const data = localStorage.getItem('soundboxd_lists');
-  if (!data) {
-    localStorage.setItem('soundboxd_lists', JSON.stringify(INITIAL_DEMO_LISTS));
-    return INITIAL_DEMO_LISTS;
+  const data = localStorage.getItem('soundlog_lists');
+  if (data) {
+    try {
+      return JSON.parse(data);
+    } catch {
+      return [];
+    }
   }
-  return JSON.parse(data);
+  return [];
 };
 
 export const saveLocalList = (newList) => {
   const lists = getLocalLists();
-  const updated = [newList, ...lists];
-  localStorage.setItem('soundboxd_lists', JSON.stringify(updated));
-  return updated;
-};
-
-export const deleteList = async (listId) => {
-  const lists = getLocalLists();
-  const updated = lists.filter(l => l.id !== listId);
-  localStorage.setItem('soundboxd_lists', JSON.stringify(updated));
-
-  if (isSupabaseConfigured() && supabase) {
-    try {
-      await supabase.from('lists').delete().eq('id', listId);
-    } catch (err) {
-      console.warn('Supabase list delete error:', err);
-    }
+  const existingIdx = lists.findIndex((l) => l.id === newList.id);
+  let updatedLists;
+  if (existingIdx >= 0) {
+    updatedLists = [...lists];
+    updatedLists[existingIdx] = newList;
+  } else {
+    updatedLists = [newList, ...lists];
   }
+  localStorage.setItem('soundlog_lists', JSON.stringify(updatedLists));
+  return updatedLists;
+};
+
+export const deleteList = (listId) => {
+  const lists = getLocalLists();
+  const updated = lists.filter((l) => l.id !== listId);
+  localStorage.setItem('soundlog_lists', JSON.stringify(updated));
   return updated;
 };
 
-// Supabase Async Handlers (With safe local merging)
+// ---------------------------------------------------------------------------
+// SUPABASE OPERATIONS FOR ALBUMS & TRACKS
+// ---------------------------------------------------------------------------
+
 export const fetchReviews = async () => {
-  const local = getLocalReviews();
   if (isSupabaseConfigured() && supabase) {
     try {
       const { data, error } = await supabase
         .from('reviews')
         .select('*')
         .order('created_at', { ascending: false });
-      if (!error && data) {
-        const mergedMap = new Map();
-        local.forEach(r => mergedMap.set(r.id || r.album_id, r));
-        data.forEach(r => mergedMap.set(r.id || r.album_id, r));
-        const merged = Array.from(mergedMap.values()).sort(
-          (a, b) => new Date(b.created_at || b.listened_date) - new Date(a.created_at || a.listened_date)
-        );
-        localStorage.setItem('soundboxd_reviews', JSON.stringify(merged));
-        return merged;
+
+      if (error) throw error;
+      if (data && data.length > 0) {
+        saveLocalReviews(data);
+        return data;
       }
+      return getLocalReviews();
     } catch (err) {
-      console.warn('Supabase fetch error, fallback to local storage', err);
+      console.warn('Erro ao buscar reviews no Supabase, usando local:', err);
+      return getLocalReviews();
     }
   }
-  return local;
+  return getLocalReviews();
 };
 
-export const createOrUpdateReview = async (reviewData) => {
-  const cleanReview = {
-    ...reviewData,
-    id: (reviewData.id && reviewData.id.includes('-')) ? reviewData.id : generateUUID()
+export const createOrUpdateReview = async (evalData) => {
+  const itemType = evalData.item_type || (evalData.track_id ? 'track' : 'album');
+
+  const evalToSave = {
+    ...evalData,
+    item_type: itemType,
+    id: evalData.id || generateUUID(),
+    created_at: evalData.created_at || new Date().toISOString()
   };
 
-  saveLocalReview(cleanReview); // Save locally immediately!
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('reviews')
+        .upsert(evalToSave)
+        .select();
+
+      if (error) throw error;
+      return data[0];
+    } catch (err) {
+      console.warn('Erro ao salvar no Supabase, salvando localmente:', err);
+    }
+  }
+
+  // Local Storage Save
+  const localReviews = getLocalReviews();
+  const existingIndex = localReviews.findIndex((r) => r.id === evalToSave.id);
+  let updated;
+  if (existingIndex >= 0) {
+    updated = [...localReviews];
+    updated[existingIndex] = evalToSave;
+  } else {
+    updated = [evalToSave, ...localReviews];
+  }
+  saveLocalReviews(updated);
+  return evalToSave;
+};
+
+export const deleteReview = async (reviewId) => {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { error } = await supabase
+        .from('reviews')
+        .delete()
+        .eq('id', reviewId);
+
+      if (error) throw error;
+    } catch (err) {
+      console.warn('Erro ao deletar no Supabase, deletando local:', err);
+    }
+  }
+
+  const localReviews = getLocalReviews();
+  const updated = localReviews.filter((r) => r.id !== reviewId);
+  saveLocalReviews(updated);
+  return updated;
+};
+
+export const fetchProfile = async (userSession) => {
+  if (!userSession) return null;
 
   if (isSupabaseConfigured() && supabase) {
     try {
-      const payload = { ...cleanReview };
-      const { data, error } = await supabase.from('reviews').upsert(payload).select();
-      if (error) {
-        console.error('Erro de inserção no Supabase:', error);
-      } else if (data && data[0]) {
-        saveLocalReview(data[0]);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userSession.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      if (data) {
+        saveLocalProfile(data);
+        return data;
       }
     } catch (err) {
-      console.warn('Supabase upsert error:', err);
+      console.warn('Erro ao buscar perfil no Supabase:', err);
     }
   }
-  return cleanReview;
+
+  return getLocalProfile();
 };
 
-export const deleteReview = async (id) => {
-  deleteLocalReview(id);
+export const updateProfile = async (profileData) => {
   if (isSupabaseConfigured() && supabase) {
     try {
-      await supabase.from('reviews').delete().eq('id', id);
+      const { data, error } = await supabase
+        .from('profiles')
+        .upsert(profileData)
+        .select();
+
+      if (error) throw error;
+      if (data && data.length > 0) {
+        saveLocalProfile(data[0]);
+        return data[0];
+      }
     } catch (err) {
-      console.warn('Supabase delete error', err);
+      console.warn('Erro ao salvar perfil no Supabase:', err);
     }
   }
+
+  return saveLocalProfile(profileData);
 };
+
+// ---------------------------------------------------------------------------
+// 4. SISTEMA DE SEGUIDORES E DESCOBERTA DE USUÁRIOS
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_COMMUNITY_USERS = [
+  {
+    id: 'user-rodrigo-clube',
+    username: 'clube_da_esquina',
+    full_name: 'Rodrigo Alencar',
+    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+    bio: 'Colecionador de prensagens originais da MPB e Clube da Esquina. Crítico independente.',
+    location: 'Belo Horizonte, MG',
+    favorite_artist: 'Milton Nascimento, Lô Borges, Beto Guedes',
+    favorite_genres: ['MPB', 'Psicodelia', 'Jazz'],
+    reviews_count: 142,
+    followers_count: 318,
+    recent_reviews: [
+      {
+        item_type: 'album',
+        album_title: 'Clube da Esquina',
+        artist_name: 'Milton Nascimento & Lô Borges',
+        rating: 5.0,
+        review_text: 'O monumento sonoro mais rico e poético já concebido na música universal.'
+      },
+      {
+        item_type: 'track',
+        track_name: 'Trem Azul',
+        artist_name: 'Lô Borges',
+        album_title: 'Clube da Esquina',
+        rating: 5.0,
+        review_text: 'Arranjo de cordas sublime e guitarra inconfundível de Toninho Horta.'
+      }
+    ]
+  },
+  {
+    id: 'user-mariana-discoteca',
+    username: 'discoteca_basica',
+    full_name: 'Mariana Souza',
+    avatar_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=300&q=80',
+    bio: 'Jornalista cultural, pesquisadora de Samba-Jazz, Bossa e discos fundamentais do século XX.',
+    location: 'Rio de Janeiro, RJ',
+    favorite_artist: 'Arthur Verocai, Elis Regina, Quarteto em Cy',
+    favorite_genres: ['Samba-Jazz', 'Bossa Nova', 'MPB'],
+    reviews_count: 210,
+    followers_count: 540,
+    recent_reviews: [
+      {
+        item_type: 'album',
+        album_title: 'Arthur Verocai',
+        artist_name: 'Arthur Verocai',
+        rating: 5.0,
+        review_text: 'Os arranjos orquestrais de Verocai encontram o groove perfeito neste clássico imortal de 1972.'
+      },
+      {
+        item_type: 'track',
+        track_name: 'Águas de Março',
+        artist_name: 'Elis Regina & Tom Jobim',
+        album_title: 'Elis & Tom',
+        rating: 5.0,
+        review_text: 'A maior química vocal da história da canção brasileira.'
+      }
+    ]
+  },
+  {
+    id: 'user-joao-groove',
+    username: 'joao_groove',
+    full_name: 'João Vitor Ribeiro',
+    avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+    bio: 'Fissurado em Soul brasileiro dos anos 70, Tim Maia, funk de raiz e psicodelia nordestina.',
+    location: 'Recife, PE',
+    favorite_artist: 'Tim Maia, Alceu Valença, Jorge Ben Jor',
+    favorite_genres: ['Soul', 'Funk 70s', 'Tropicália'],
+    reviews_count: 98,
+    followers_count: 184,
+    recent_reviews: [
+      {
+        item_type: 'album',
+        album_title: 'A Tábua de Esmeralda',
+        artist_name: 'Jorge Ben Jor',
+        rating: 5.0,
+        review_text: 'Alquimia pura gravada em fita analógica. A batida do violão transcende qualquer época.'
+      }
+    ]
+  },
+  {
+    id: 'user-beatriz-som',
+    username: 'beatriz_som',
+    full_name: 'Beatriz Lima',
+    avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
+    bio: 'Resenhas de lançamentos independentes, indie nacional e discos esquecidos da Tropicália.',
+    location: 'São Paulo, SP',
+    favorite_artist: 'Tim Bernardes, Gal Costa, O Terno',
+    favorite_genres: ['Indie', 'MPB', 'Folk'],
+    reviews_count: 175,
+    followers_count: 420,
+    recent_reviews: [
+      {
+        item_type: 'album',
+        album_title: 'Recomeçar',
+        artist_name: 'Tim Bernardes',
+        rating: 4.5,
+        review_text: 'Voz, violão, orquestrações intimistas e composições de doer a alma.'
+      },
+      {
+        item_type: 'track',
+        track_name: 'Baby',
+        artist_name: 'Gal Costa',
+        album_title: 'Gal Costa (1969)',
+        rating: 5.0,
+        review_text: 'A delicadeza e a vanguarda tropicalista em seu auge absoluto.'
+      }
+    ]
+  },
+  {
+    id: 'user-carlos-caetano',
+    username: 'caetano_archive',
+    full_name: 'Carlos Eduardo',
+    avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80',
+    bio: 'Documentando tudo da era de ouro da Tropicália e rock psicodélico latino-americano.',
+    location: 'Salvador, BA',
+    favorite_artist: 'Caetano Veloso, Os Mutantes, Gilberto Gil',
+    favorite_genres: ['Tropicália', 'Psicodelia', 'Rock Brasileiro'],
+    reviews_count: 133,
+    followers_count: 290,
+    recent_reviews: [
+      {
+        item_type: 'album',
+        album_title: 'Transa',
+        artist_name: 'Caetano Veloso',
+        rating: 5.0,
+        review_text: 'O exílio em Londres transformado em poesia crua, groove e saudade.'
+      }
+    ]
+  },
+  {
+    id: 'user-lucas-vinil',
+    username: 'vinil_critico',
+    full_name: 'Lucas Mendes',
+    avatar_url: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=300&q=80',
+    bio: 'Ouvinte focado em formatos físicos, fitas cassete e pós-punk nacional e internacional.',
+    location: 'Curitiba, PR',
+    favorite_artist: 'Portishead, Joy Division, Legião Urbana',
+    favorite_genres: ['Pós-Punk', 'Trip-Hop', 'Rock Alternativo'],
+    reviews_count: 164,
+    followers_count: 360,
+    recent_reviews: [
+      {
+        item_type: 'album',
+        album_title: 'Dummy',
+        artist_name: 'Portishead',
+        rating: 5.0,
+        review_text: 'Clima noir, scratches hipnóticos e a voz inigualável de Beth Gibbons.'
+      }
+    ]
+  }
+];
+
+export const getLocalFollows = (userId = 'default') => {
+  const key = `soundlog_follows_${userId}`;
+  const data = localStorage.getItem(key);
+  if (data) {
+    try {
+      return JSON.parse(data);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+export const saveLocalFollows = (userId = 'default', followingList = []) => {
+  const key = `soundlog_follows_${userId}`;
+  localStorage.setItem(key, JSON.stringify(followingList));
+};
+
+export const fetchFollows = async (userId) => {
+  if (!userId) return [];
+
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', userId);
+
+      if (!error && data) {
+        const followingIds = data.map((d) => d.following_id);
+        saveLocalFollows(userId, followingIds);
+        return followingIds;
+      }
+    } catch (err) {
+      console.warn('Erro ao buscar follows no Supabase:', err);
+    }
+  }
+
+  return getLocalFollows(userId);
+};
+
+export const toggleFollowUser = async (currentUserId, targetUserId) => {
+  if (!currentUserId || !targetUserId || currentUserId === targetUserId) {
+    return { isFollowing: false, following: [] };
+  }
+
+  const currentFollowing = getLocalFollows(currentUserId);
+  const isCurrentlyFollowing = currentFollowing.includes(targetUserId);
+
+  let updatedFollowing;
+  if (isCurrentlyFollowing) {
+    updatedFollowing = currentFollowing.filter((id) => id !== targetUserId);
+  } else {
+    updatedFollowing = [...currentFollowing, targetUserId];
+  }
+
+  saveLocalFollows(currentUserId, updatedFollowing);
+
+  // Sync with Supabase if configured
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      if (isCurrentlyFollowing) {
+        await supabase
+          .from('follows')
+          .delete()
+          .eq('follower_id', currentUserId)
+          .eq('following_id', targetUserId);
+      } else {
+        await supabase
+          .from('follows')
+          .insert({ follower_id: currentUserId, following_id: targetUserId });
+      }
+    } catch (err) {
+      console.warn('Erro ao sincronizar follow no Supabase:', err);
+    }
+  }
+
+  return {
+    isFollowing: !isCurrentlyFollowing,
+    following: updatedFollowing
+  };
+};
+
+/**
+ * Busca ouvintes/usuários do Soundlog pelo termo pesquisado
+ */
+export const searchUsers = async (term, currentUserId = null) => {
+  if (!term || !term.trim()) return [];
+  const normalized = term.toLowerCase().trim().replace(/^@/, '');
+
+  let supabaseUsers = [];
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .or(`username.ilike.%${normalized}%,full_name.ilike.%${normalized}%,bio.ilike.%${normalized}%,favorite_artist.ilike.%${normalized}%`)
+        .limit(10);
+
+      if (!error && data) {
+        supabaseUsers = data;
+      }
+    } catch (err) {
+      console.warn('Erro ao buscar perfis no Supabase:', err);
+    }
+  }
+
+  // Combina perfis do Supabase com os usuários da comunidade editorial
+  const allUsersMap = new Map();
+
+  // Adiciona usuários do Supabase
+  supabaseUsers.forEach((u) => {
+    if (u.id !== currentUserId) {
+      allUsersMap.set(u.id, {
+        id: u.id,
+        username: u.username || 'usuario',
+        full_name: u.full_name || u.display_name || u.username,
+        avatar_url: u.avatar_url || '',
+        bio: u.bio || '',
+        location: u.location || '',
+        favorite_artist: u.favorite_artist || '',
+        favorite_genres: u.favorite_genres || [],
+        reviews_count: u.reviews_count || 0,
+        followers_count: u.followers_count || 0,
+        recent_reviews: []
+      });
+    }
+  });
+
+  // Adiciona e filtra usuários da comunidade editorial
+  DEFAULT_COMMUNITY_USERS.forEach((u) => {
+    if (u.id !== currentUserId && !allUsersMap.has(u.id)) {
+      const matchUsername = u.username.toLowerCase().includes(normalized);
+      const matchName = u.full_name.toLowerCase().includes(normalized);
+      const matchBio = u.bio.toLowerCase().includes(normalized);
+      const matchArtist = u.favorite_artist?.toLowerCase().includes(normalized);
+      const matchGenres = u.favorite_genres?.some((g) => g.toLowerCase().includes(normalized));
+
+      if (matchUsername || matchName || matchBio || matchArtist || matchGenres) {
+        allUsersMap.set(u.id, u);
+      }
+    }
+  });
+
+  const followingList = getLocalFollows(currentUserId);
+  const results = Array.from(allUsersMap.values()).map((user) => ({
+    ...user,
+    is_following: followingList.includes(user.id)
+  }));
+
+  return results;
+};
+

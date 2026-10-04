@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { X, Plus, Search, Trash2, Save, Layers, Disc } from 'lucide-react';
+﻿import React, { useState } from 'react';
 import { searchAlbums } from '../services/musicApi';
 import { generateUUID } from '../services/supabase';
 
@@ -8,7 +7,7 @@ export function CreateListModal({ onClose, onSaveList }) {
   const [description, setDescription] = useState('');
   const [listItems, setListItems] = useState([]);
 
-  // Album Search inside List modal
+  // Busca de álbuns para inclusão
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -43,8 +42,8 @@ export function CreateListModal({ onClose, onSaveList }) {
 
     const newList = {
       id: generateUUID(),
-      title,
-      description,
+      title: title.trim(),
+      description: description.trim(),
       created_at: new Date().toISOString(),
       items: listItems.map(item => ({
         album_id: item.album_id,
@@ -58,158 +57,144 @@ export function CreateListModal({ onClose, onSaveList }) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="bottom-sheet" style={{ maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-handle"></div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Layers size={20} color="var(--color-green)" /> Criar Nova Lista de Álbuns
-          </h3>
+    <div className="fixed inset-0 z-50 bg-[#121110]/85 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+      <div className="soundlog-paper paper-texture border border-[#151413] shadow-2xl w-full max-w-2xl my-auto p-6 sm:p-8 space-y-6">
+        
+        {/* MASTHEAD HEADER */}
+        <div className="border-b-2 border-[#151413] pb-3 flex justify-between items-baseline">
+          <div>
+            <span className="font-editorial-serif text-2xl font-black text-[#151413]">Soundlog</span>
+            <span className="text-[10px] font-mono-meta text-[#BA3822] uppercase tracking-widest font-bold block">
+              CURADORIA MUSICAL
+            </span>
+          </div>
           <button
             onClick={onClose}
-            style={{
-              background: 'rgba(255,255,255,0.08)',
-              border: 'none',
-              color: '#fff',
-              borderRadius: '50%',
-              width: '28px',
-              height: '28px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer'
-            }}
+            className="text-xs font-mono-meta text-[#58534C] hover:text-[#151413] border border-[#151413] px-2 py-1 bg-[#FAF8F5]"
           >
-            <X size={16} />
+            ✕ FECHAR
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-              TÍTULO DA LISTA
-            </label>
-            <input
-              type="text"
-              className="input-field"
-              placeholder="ex: Álbuns para Ouvir de Madrugada"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-            />
-          </div>
+        <div>
+          <h2 className="font-editorial-serif text-2xl font-bold text-[#151413]">
+            Criar Nova Lista Temática
+          </h2>
+          <p className="font-reading-serif text-xs text-[#58534C] mt-1">
+            Organize seleções conceituais de discos, fases discográficas ou recomendações essenciais.
+          </p>
+        </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-              DESCRIÇÃO / CONCEITO DA LISTA
-            </label>
-            <textarea
-              className="input-field"
-              rows={2}
-              placeholder="Descreva o tema da sua coleção de álbuns..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-
-          {/* Add Albums to List Section */}
-          <div>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
-              ADICIONAR ÁLBUNS À LISTA ({listItems.length})
-            </label>
-
-            {/* Selected Albums Row */}
-            {listItems.length > 0 && (
-              <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '12px' }}>
-                {listItems.map((item) => (
-                  <div key={item.album_id} style={{ position: 'relative', width: '64px', flexShrink: 0 }}>
-                    <img src={item.cover_url} alt="" style={{ width: '64px', height: '64px', borderRadius: '8px', objectFit: 'cover' }} />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAlbum(item.album_id)}
-                      style={{
-                        position: 'absolute',
-                        top: '-4px',
-                        right: '-4px',
-                        background: '#ff4d6d',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: '20px',
-                        height: '20px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <X size={12} />
-                    </button>
-                    <div style={{ fontSize: '9px', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}>
-                      {item.album_title}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Album Search Input */}
-            <div style={{ position: 'relative' }}>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          
+          <div className="space-y-4">
+            
+            {/* Título */}
+            <div className="space-y-1">
+              <label className="font-mono-meta text-xs font-bold text-[#151413]">Título da Lista</label>
               <input
                 type="text"
-                className="input-field"
-                placeholder="Buscar álbum para adicionar à lista..."
-                value={searchTerm}
-                onChange={(e) => handleSearchAlbums(e.target.value)}
-                style={{ paddingLeft: '36px', fontSize: '13px' }}
+                required
+                placeholder="ex: Melhores discos brasileiros dos anos 2000"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="field-editorial"
               />
-              <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
             </div>
 
-            {/* Search Results dropdown */}
-            {searchResults.length > 0 && (
-              <div style={{
-                maxHeight: '160px',
-                overflowY: 'auto',
-                background: '#191d21',
-                border: '1px solid var(--border-color)',
-                borderRadius: '8px',
-                marginTop: '6px',
-                display: 'flex',
-                flexDirection: 'column'
-              }}>
-                {searchResults.map((album) => (
-                  <div
-                    key={album.album_id}
-                    onClick={() => handleAddAlbum(album)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '8px 12px',
-                      borderBottom: '1px solid rgba(255,255,255,0.05)',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <img src={album.cover_url} alt="" style={{ width: '36px', height: '36px', borderRadius: '4px', objectFit: 'cover' }} />
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                      <div style={{ fontSize: '12px', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {album.album_title}
+            {/* Descrição */}
+            <div className="space-y-1">
+              <label className="font-mono-meta text-xs font-bold text-[#151413]">Descrição / Texto Curatorial</label>
+              <textarea
+                rows="3"
+                placeholder="Explique o conceito estético por trás desta seleção..."
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="field-editorial font-reading-serif resize-none text-xs"
+              />
+            </div>
+
+            {/* Adicionar Álbuns à Lista */}
+            <div className="space-y-2 pt-2 border-t border-rule">
+              <label className="font-mono-meta text-xs font-bold text-[#151413]">
+                Pesquisar Álbuns para Incluir ({listItems.length} selecionados)
+              </label>
+              <input
+                type="text"
+                placeholder="Digite o nome de um álbum para adicionar..."
+                value={searchTerm}
+                onChange={(e) => handleSearchAlbums(e.target.value)}
+                className="field-editorial text-xs"
+              />
+
+              {/* Resultados da busca rápida de inclusão */}
+              {searchResults.length > 0 && (
+                <div className="bg-[#FAF8F5] border border-[#151413] max-h-48 overflow-y-auto divide-y divide-rule font-mono-meta text-xs">
+                  {searchResults.slice(0, 6).map((alb) => (
+                    <div
+                      key={alb.album_id}
+                      onClick={() => handleAddAlbum(alb)}
+                      className="p-2 flex items-center justify-between hover:bg-[#EFEAE1] cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2.5 truncate">
+                        <img src={alb.cover_url} alt="" className="w-8 h-8 object-cover border border-[#151413]" />
+                        <span className="font-bold truncate">{alb.album_title} · {alb.artist_name}</span>
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--color-green)' }}>{album.artist_name}</div>
+                      <span className="text-[#BA3822] font-bold text-xs pl-2">+ Adicionar</span>
                     </div>
-                    <Plus size={16} color="var(--color-green)" />
-                  </div>
-                ))}
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Álbuns já inclusos na lista */}
+            {listItems.length > 0 && (
+              <div className="space-y-2 pt-2">
+                <span className="text-[10px] font-mono-meta text-[#888075] uppercase block">
+                  Discos na Lista:
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {listItems.map((item) => (
+                    <div
+                      key={item.album_id}
+                      className="flex items-center gap-2 p-1.5 bg-[#EFEAE1] border border-rule font-mono-meta text-xs"
+                    >
+                      <img src={item.cover_url} alt="" className="w-6 h-6 object-cover" />
+                      <span className="truncate max-w-[140px] font-bold text-[#151413]">{item.album_title}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAlbum(item.album_id)}
+                        className="text-[#9E2A1B] hover:text-black font-bold px-1"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
+
           </div>
 
-          <button type="submit" className="btn-primary" style={{ marginTop: '8px' }}>
-            <Save size={18} /> Salvar Nova Lista
-          </button>
+          {/* AÇÕES */}
+          <div className="pt-4 border-t border-[#151413] flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="btn-editorial-secondary text-xs py-2 px-4"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="btn-editorial-primary text-xs py-2 px-6"
+            >
+              Salvar lista
+            </button>
+          </div>
+
         </form>
+
       </div>
     </div>
   );

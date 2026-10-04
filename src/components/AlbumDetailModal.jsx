@@ -1,23 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { X, Play, Pause, PlusCircle, ExternalLink, Calendar, Music, Disc, Heart, Trash2 } from 'lucide-react';
 import { getAlbumDetails } from '../services/musicApi';
-import { StarRating } from './StarRating';
-import { fetchTrackRatings, saveTrackRating, deleteTrackRating } from '../services/supabase';
+import logoImg from '../assets/logo.jpg';
 
-export function AlbumDetailModal({ album, userReview, onClose, onOpenReview, onDeleteReview, onPlayTrack, currentPlayingTrack }) {
+export function AlbumDetailModal({
+  album,
+  userReview,
+  allReviews = [],
+  onClose,
+  onOpenReview,
+  onSelectTrack,
+  onOpenTrackReview,
+  onDeleteReview,
+  onPlayTrack,
+  currentPlayingTrack
+}) {
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [trackRatings, setTrackRatings] = useState({});
 
   useEffect(() => {
     if (album?.album_id) {
       setLoading(true);
-      Promise.all([
-        getAlbumDetails(album.album_id),
-        fetchTrackRatings(album.album_id)
-      ]).then(([resDetails, resRatings]) => {
+      getAlbumDetails(album.album_id).then((resDetails) => {
         setDetails(resDetails || album);
-        setTrackRatings(resRatings || {});
         setLoading(false);
       });
     }
@@ -26,289 +30,245 @@ export function AlbumDetailModal({ album, userReview, onClose, onOpenReview, onD
   if (!album) return null;
   const albumData = details || album;
 
-  const handleRateTrack = async (track, newRating) => {
-    const key = `${albumData.album_id}_${track.track_id}`;
-    const current = trackRatings[key] || {};
-    const updatedData = {
-      album_id: String(albumData.album_id),
-      track_id: String(track.track_id),
-      track_name: track.track_name,
-      artist_name: albumData.artist_name,
-      rating: newRating,
-      is_favorite: Boolean(current.is_favorite)
-    };
-    
-    setTrackRatings(prev => ({
-      ...prev,
-      [key]: updatedData
-    }));
-
-    await saveTrackRating(updatedData);
-  };
-
-  const handleToggleFavoriteTrack = async (track) => {
-    const key = `${albumData.album_id}_${track.track_id}`;
-    const current = trackRatings[key] || {};
-    const updatedData = {
-      album_id: String(albumData.album_id),
-      track_id: String(track.track_id),
-      track_name: track.track_name,
-      artist_name: albumData.artist_name,
-      rating: current.rating || 5.0,
-      is_favorite: !current.is_favorite
-    };
-
-    setTrackRatings(prev => ({
-      ...prev,
-      [key]: updatedData
-    }));
-
-    await saveTrackRating(updatedData);
-  };
-
-  const handleRemoveTrackRating = async (track) => {
-    const key = `${albumData.album_id}_${track.track_id}`;
-    setTrackRatings(prev => {
-      const copy = { ...prev };
-      delete copy[key];
-      return copy;
-    });
-    await deleteTrackRating(albumData.album_id, track.track_id);
+  // Helper to find review for a specific track
+  const getTrackReview = (trackId) => {
+    return allReviews.find(
+      (r) => r.item_type === 'track' && String(r.track_id) === String(trackId)
+    );
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="bottom-sheet" style={{ maxHeight: '88vh' }} onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-handle"></div>
+    <div className="fixed inset-0 z-50 bg-[#121110]/85 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+      <div className="soundlog-paper paper-texture border border-[#151413] shadow-2xl w-full max-w-4xl my-auto p-6 sm:p-10 max-h-[90vh] overflow-y-auto space-y-8">
+        
+        {/* TOP BAR */}
+        <div className="border-b-2 border-[#151413] pb-3 flex justify-between items-center">
+          <div className="flex items-center gap-4">
+            <img
+              src={logoImg}
+              alt="Soundlog"
+              className="h-8 sm:h-9 w-auto object-contain mix-blend-multiply"
+            />
+            <span className="text-[10px] font-mono-meta text-[#888075] uppercase hidden sm:inline border-l border-rule pl-3">
+              FICHA DISCOGRÁFICA · ÁLBUM COMPLETO
+            </span>
+          </div>
 
-        {/* Close Button Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', fontWeight: 700 }}>
-            Detalhes do Álbum
-          </span>
           <button
             onClick={onClose}
-            style={{
-              background: 'rgba(255,255,255,0.08)',
-              border: 'none',
-              color: '#fff',
-              borderRadius: '50%',
-              width: '28px',
-              height: '28px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer'
-            }}
+            className="text-xs font-mono-meta text-[#58534C] hover:text-[#151413] border border-[#151413] px-2 py-1 bg-[#FAF8F5]"
           >
-            <X size={16} />
+            ✕ FECHAR
           </button>
         </div>
 
-        {/* Album Hero Info */}
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '20px' }}>
-          <img
-            src={albumData.cover_url}
-            alt={albumData.album_title}
-            style={{
-              width: '110px',
-              height: '110px',
-              borderRadius: '12px',
-              objectFit: 'cover',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-              flexShrink: 0
-            }}
-          />
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <h2 style={{ fontSize: '1.15rem', fontWeight: 800, lineHeight: '1.25', color: '#fff', marginBottom: '4px' }}>
-              {albumData.album_title}
-            </h2>
-            <p style={{ fontSize: '0.9rem', color: 'var(--color-purple-light)', fontWeight: 600, marginBottom: '8px' }}>
-              {albumData.artist_name}
-            </p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <Calendar size={12} /> {albumData.release_year}
-              </span>
-              <span>•</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <Music size={12} /> {albumData.genre}
-              </span>
+        {/* HERO SECTION DO ÁLBUM */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start border-b border-rule pb-8">
+          
+          {/* Capa do Álbum (5 cols) */}
+          <div className="md:col-span-5 space-y-3">
+            <div className="relative aspect-square bg-[#151413] border-2 border-[#151413] shadow-md overflow-hidden">
+              <img
+                src={albumData.cover_url || 'https://via.placeholder.com/600'}
+                alt=""
+                className="w-full h-full object-cover"
+              />
             </div>
 
-            {userReview && (
-              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <StarRating rating={userReview.rating} readonly size={14} />
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>(Sua nota)</span>
+            {/* Ações Compactas e Objetivas */}
+            <div className="grid grid-cols-2 gap-2 font-mono-meta text-xs">
+              <button
+                onClick={() => onOpenReview(albumData)}
+                className="btn-editorial-primary text-xs py-2 px-2 text-center"
+              >
+                {userReview ? 'Editar Nota do Álbum' : '★ Avaliar Álbum'}
+              </button>
+              <button
+                onClick={() => onOpenReview(albumData)}
+                className="btn-editorial-secondary text-xs py-2 px-2 text-center"
+              >
+                + Diário do Álbum
+              </button>
+            </div>
+          </div>
+
+          {/* Informações e Metadados (7 cols) */}
+          <div className="md:col-span-7 space-y-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2 mb-2 font-mono-meta text-xs">
+                <span className="editorial-badge editorial-badge-accent">ÁLBUM COMPLETO</span>
+                <span className="editorial-badge">{albumData.release_year || 'N/A'}</span>
+                <span className="editorial-badge">{albumData.genre || 'Música'}</span>
+                <span className="editorial-badge">{(albumData.tracks || []).length || albumData.total_tracks || '0'} FAIXAS</span>
+              </div>
+
+              <h1 className="font-editorial-serif text-3xl sm:text-4xl font-black text-[#151413] tracking-tight leading-tight">
+                {albumData.album_title}
+              </h1>
+              <h2 className="font-editorial-serif text-xl text-[#58534C] font-semibold mt-0.5">
+                {albumData.artist_name}
+              </h2>
+            </div>
+
+            {/* Painel da Avaliação do Usuário para o Álbum */}
+            {userReview ? (
+              <div className="p-4 bg-[#EFEAE1] border border-[#151413] space-y-2 font-mono-meta text-xs">
+                <div className="flex justify-between items-baseline">
+                  <span className="font-bold text-[#151413] uppercase">Sua Avaliação do Álbum Completo:</span>
+                  <span className="text-[#BA3822] text-base font-bold">★ {Number(userReview.rating).toFixed(1)} / 5.0</span>
+                </div>
+                {userReview.review_text && (
+                  <p className="font-reading-serif text-xs text-[#38332C] leading-relaxed">
+                    "{userReview.review_text}"
+                  </p>
+                )}
+                <div className="pt-2 border-t border-rule flex justify-between text-[11px] text-[#888075]">
+                  <span>Ouvido em {userReview.listened_date} ({userReview.media_format || 'Vinil'})</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => onOpenReview(albumData)}
+                      className="text-[#BA3822] underline"
+                    >
+                      Editar
+                    </button>
+                    {onDeleteReview && (
+                      <button
+                        onClick={() => {
+                          if (confirm('Deseja excluir a avaliação deste álbum?')) {
+                            onDeleteReview(userReview.id);
+                          }
+                        }}
+                        className="text-[#9E2A1B] underline"
+                      >
+                        Excluir
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-[#FAF8F5] border border-rule space-y-1">
+                <span className="text-xs font-mono-meta text-[#888075] uppercase block">
+                  Status do Álbum no seu perfil
+                </span>
+                <p className="font-reading-serif text-xs text-[#58534C]">
+                  Você ainda não avaliou este álbum como um todo. Você pode avaliar o disco completo e também avaliar faixas individuais separadamente.
+                </p>
+              </div>
+            )}
+
+            {/* Link Externo no Spotify */}
+            {albumData.spotify_url && (
+              <div className="pt-2">
+                <a
+                  href={albumData.spotify_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-mono-meta text-[#58534C] hover:text-[#BA3822] inline-flex items-center gap-1.5"
+                >
+                  <span>Abrir álbum no Spotify ↗</span>
+                </a>
               </div>
             )}
           </div>
+
         </div>
 
-        {/* Primary Action Buttons */}
-        <div style={{ display: 'grid', gridTemplateColumns: userReview ? '1fr 1fr 44px' : '1fr 1fr', gap: '10px', marginBottom: '24px' }}>
-          <button className="btn-primary" onClick={() => onOpenReview(albumData)}>
-            <PlusCircle size={18} />
-            <span>{userReview ? 'Editar Resenha' : 'Avaliar Álbum'}</span>
-          </button>
-          
-          <a
-            href={albumData.spotify_url || `https://open.spotify.com/search/${encodeURIComponent(albumData.artist_name + ' ' + albumData.album_title)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-spotify"
-            style={{ justifyContent: 'center' }}
-          >
-            <Disc size={16} />
-            <span>Spotify</span>
-            <ExternalLink size={12} />
-          </a>
-
-          {userReview && onDeleteReview && (
-            <button
-              onClick={() => onDeleteReview(userReview.id)}
-              title="Excluir Avaliação deste Álbum"
-              style={{
-                background: 'rgba(255, 77, 109, 0.15)',
-                border: '1px solid #ff4d6d',
-                color: '#ff4d6d',
-                borderRadius: '10px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-              }}
-            >
-              <Trash2 size={18} />
-            </button>
-          )}
-        </div>
-
-        {/* Tracklist Section with Individual Track Rating */}
-        <div style={{ marginTop: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <h3 style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', fontWeight: 700 }}>
-              Avaliar Faixas Individuais ({albumData.tracks ? albumData.tracks.length : '...'})
-            </h3>
-            <span style={{ fontSize: '10px', color: 'var(--color-purple-light)', fontWeight: 600 }}>
-              Toque para avaliar cada música
+        {/* ALINHAMENTO DE FAIXAS COM AUDIO PREVIEW & AVALIAÇÃO INDEPENDENTE DE CADA MÚSICA */}
+        <div className="space-y-4">
+          <div className="flex items-baseline justify-between border-b-2 border-[#151413] pb-2">
+            <div>
+              <h3 className="font-editorial-serif text-xl font-bold text-[#151413]">
+                Alinhamento de Faixas
+              </h3>
+              <p className="text-[11px] font-mono-meta text-[#58534C] mt-0.5">
+                Clique no título para ver a ficha da música ou em ★ para avaliar a faixa individualmente.
+              </p>
+            </div>
+            <span className="text-xs font-mono-meta text-[#888075] shrink-0">
+              {(albumData.tracks || []).length} FAIXAS
             </span>
           </div>
 
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '13px' }}>
-              Carregando faixas...
+            <div className="p-8 text-center font-mono-meta text-xs text-[#888075]">
+              Carregando faixas e durações...
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {albumData.tracks && albumData.tracks.length > 0 ? (
-                albumData.tracks.map((track) => {
-                  const isPlaying = currentPlayingTrack?.track_id === track.track_id;
-                  const trackKey = `${albumData.album_id}_${track.track_id}`;
-                  const currentTrackData = trackRatings[trackKey] || {};
-                  const trackRating = currentTrackData.rating || 0;
-                  const isFav = currentTrackData.is_favorite || false;
-                  const hasRating = Boolean(currentTrackData.rating || currentTrackData.is_favorite);
+            <div className="font-mono-meta text-xs divide-y divide-rule border-b border-rule bg-[#FAF8F5]">
+              {(albumData.tracks || []).map((tr, idx) => {
+                const trackRev = getTrackReview(tr.track_id);
+                const trackPayload = {
+                  track_id: tr.track_id,
+                  track_name: tr.track_name,
+                  artist_name: tr.artist_name || albumData.artist_name,
+                  album_id: albumData.album_id,
+                  album_title: albumData.album_title,
+                  cover_url: albumData.cover_url,
+                  duration_formatted: tr.duration_formatted,
+                  preview_url: tr.preview_url,
+                  release_year: albumData.release_year,
+                  spotify_url: tr.spotify_url
+                };
 
-                  return (
-                    <div
-                      key={track.track_id}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '6px',
-                        padding: '10px 12px',
-                        background: isPlaying ? 'rgba(192, 132, 252, 0.12)' : 'rgba(255,255,255,0.03)',
-                        borderRadius: '10px',
-                        border: isPlaying ? '1px solid var(--color-purple-light)' : '1px solid var(--border-color)',
-                        transition: 'all 0.2s ease'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
-                          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', width: '20px' }}>
-                            {track.track_number}
-                          </span>
-                          <div style={{ overflow: 'hidden' }}>
-                            <p style={{ fontSize: '13px', fontWeight: isPlaying ? 700 : 600, color: isPlaying ? 'var(--color-purple-light)' : '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {track.track_name}
-                            </p>
-                          </div>
-                        </div>
+                return (
+                  <div
+                    key={tr.track_id || idx}
+                    className="py-2.5 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-[#EFEAE1] transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-[#888075] w-5 text-right font-mono-meta">
+                        {String(tr.track_number || idx + 1).padStart(2, '0')}
+                      </span>
 
-                        {track.preview_url && (
-                          <button
-                            onClick={() => onPlayTrack({ ...track, album_title: albumData.album_title, cover_url: albumData.cover_url })}
-                            style={{
-                              background: isPlaying ? 'var(--color-purple-main)' : 'rgba(255,255,255,0.1)',
-                              color: '#fff',
-                              border: 'none',
-                              borderRadius: '50%',
-                              width: '28px',
-                              height: '28px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: 'pointer',
-                              flexShrink: 0
-                            }}
-                          >
-                            {isPlaying ? <Pause size={14} fill="#fff" /> : <Play size={14} style={{ marginLeft: '2px' }} />}
-                          </button>
-                        )}
-                      </div>
+                      {tr.preview_url ? (
+                        <button
+                          onClick={() => onPlayTrack(trackPayload)}
+                          className="w-6 h-6 bg-[#151413] text-white flex items-center justify-center text-[9px] shrink-0 hover:bg-[#BA3822] transition-colors"
+                          title="Tocar prévia"
+                        >
+                          {currentPlayingTrack?.track_id === tr.track_id ? '❚❚' : '▶'}
+                        </button>
+                      ) : (
+                        <div className="w-6 h-6 bg-transparent shrink-0" />
+                      )}
 
-                      {/* Track Rating Controls Row */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>Nota:</span>
-                          <StarRating
-                            rating={trackRating}
-                            onRatingChange={(val) => handleRateTrack(track, val)}
-                            size={14}
-                          />
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <button
-                            onClick={() => handleToggleFavoriteTrack(track)}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              color: isFav ? '#ff4d6d' : 'var(--text-muted)',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              fontSize: '11px',
-                              fontWeight: 600
-                            }}
-                          >
-                            <Heart size={14} fill={isFav ? '#ff4d6d' : 'none'} />
-                            <span>{isFav ? 'Destaque' : 'Favoritar'}</span>
-                          </button>
-
-                          {hasRating && (
-                            <button
-                              onClick={() => handleRemoveTrackRating(track)}
-                              title="Remover avaliação desta música"
-                              style={{ background: 'none', border: 'none', color: '#ff4d6d', cursor: 'pointer', opacity: 0.8, padding: '2px' }}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                        </div>
-                      </div>
+                      <button
+                        onClick={() => onSelectTrack && onSelectTrack(trackPayload)}
+                        className="font-medium text-[#151413] hover:text-[#BA3822] hover:underline text-left truncate"
+                        title="Ver detalhes da música"
+                      >
+                        {tr.track_name}
+                      </button>
                     </div>
-                  );
-                })
-              ) : (
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Nenhuma faixa disponível.</p>
-              )}
+
+                    <div className="flex items-center justify-end gap-3 shrink-0 pl-8 sm:pl-0">
+                      {trackRev ? (
+                        <span className="text-[#BA3822] font-bold text-xs bg-[#FAF8F5] px-1.5 py-0.5 border border-rule">
+                          ★ {Number(trackRev.rating).toFixed(1)}
+                        </span>
+                      ) : null}
+
+                      <button
+                        onClick={() => onOpenTrackReview && onOpenTrackReview(trackPayload)}
+                        className="text-[11px] text-[#58534C] hover:text-[#BA3822] hover:underline font-mono-meta"
+                      >
+                        {trackRev ? 'Editar nota' : '★ Avaliar faixa'}
+                      </button>
+
+                      <span className="text-[#888075] text-[11px] w-12 text-right">
+                        {tr.duration_formatted || (tr.duration_ms ? `${Math.floor(tr.duration_ms / 60000)}:${Math.floor((tr.duration_ms % 60000) / 1000).toString().padStart(2, '0')}` : '—')}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
+
       </div>
     </div>
   );
 }
+

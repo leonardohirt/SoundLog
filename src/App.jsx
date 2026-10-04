@@ -1,907 +1,993 @@
 import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
-import { AlbumCard } from './components/AlbumCard';
-import { AlbumDetailModal } from './components/AlbumDetailModal';
-import { ReviewModal } from './components/ReviewModal';
-import { MiniPlayer } from './components/MiniPlayer';
-import { SettingsModal } from './components/SettingsModal';
+import { AuthScreen } from './components/AuthScreen';
+import { OnboardingModal } from './components/OnboardingModal';
+import { ExploreView } from './components/ExploreView';
+import { DiaryView } from './components/DiaryView';
+import { ListsView } from './components/ListsView';
 import { ProfileView } from './components/ProfileView';
+import { AlbumDetailModal } from './components/AlbumDetailModal';
+import { TrackDetailModal } from './components/TrackDetailModal';
+import { UserProfileModal } from './components/UserProfileModal';
+import { ReviewModal } from './components/ReviewModal';
 import { EditProfileModal } from './components/EditProfileModal';
 import { CreateListModal } from './components/CreateListModal';
-import { AuthScreen } from './components/AuthScreen';
-import { StarRating } from './components/StarRating';
-import { searchAlbums, searchTracks, searchAll, getTrendingAlbums } from './services/musicApi';
-import { fetchReviews, createOrUpdateReview, deleteReview, getLocalLists, saveLocalList, deleteList, fetchProfile, updateProfile, fetchTrackRatings, saveTrackRating, deleteTrackRating, getLocalTrackRatings, supabase } from './services/supabase';
-import { Search, Plus, BookOpen, Flame, Disc, Trash2, Edit3, LogOut, Layers, Heart, Play, Pause, Music, User, Star } from 'lucide-react';
+import { MiniPlayer } from './components/MiniPlayer';
+import logoImg from './assets/logo.jpg';
+import { searchAll, getTrendingAlbums } from './services/musicApi';
+import { getPersonalizedHomeData, getPersonalizedExploreData } from './services/recommendationService';
+
+import {
+  fetchReviews,
+  createOrUpdateReview,
+  deleteReview,
+  getLocalLists,
+  saveLocalList,
+  deleteList,
+  fetchProfile,
+  updateProfile,
+  fetchFollows,
+  toggleFollowUser,
+  searchUsers,
+  DEFAULT_COMMUNITY_USERS,
+  supabase
+} from './services/supabase';
 
 export default function App() {
-  // Session State
+  // 1. ESTADO DE SESSÃO DO USUÁRIO
   const [userSession, setUserSession] = useState(() => {
-    const saved = localStorage.getItem('soundboxd_session');
+    const saved = localStorage.getItem('soundlog_session');
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [activeTab, setActiveTab] = useState('home');
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'explore' | 'reviews' | 'lists' | 'diary' | 'profile'
+
+  // Dados do Catálogo & Usuário
   const [trendingAlbums, setTrendingAlbums] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [lists, setLists] = useState([]);
   const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [followingIds, setFollowingIds] = useState([]);
+  const [communityUsers, setCommunityUsers] = useState(DEFAULT_COMMUNITY_USERS);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  // Search state
+  // Estados de Personalização
+  const [personalizedHome, setPersonalizedHome] = useState({
+    isPersonalized: false,
+    heroAlbum: null,
+    contextReason: null,
+    recommendedAlbums: [],
+    recommendedTracks: [],
+    topGenres: []
+  });
+  const [personalizedExplore, setPersonalizedExplore] = useState({
+    isPersonalized: false,
+    albums: [],
+    tracks: [],
+    topGenres: [],
+    topArtists: []
+  });
+
+  // Busca ativa
   const [searchTerm, setSearchTerm] = useState('');
-  const [searchFilter, setSearchFilter] = useState('tracks'); // 'tracks' | 'albums' | 'all'
-  const [searchResults, setSearchResults] = useState({ albums: [], tracks: [] });
+  const [searchFilter, setSearchFilter] = useState('all'); // 'all' | 'albums' | 'tracks' | 'users'
+  const [searchResults, setSearchResults] = useState({ albums: [], tracks: [], users: [] });
   const [isSearching, setIsSearching] = useState(false);
-  const [userTrackRatings, setUserTrackRatings] = useState({});
 
-  // Modals state
+  // Modais de Detalhes e Avaliação
   const [selectedAlbum, setSelectedAlbum] = useState(null);
-  const [reviewAlbum, setReviewAlbum] = useState(null);
-  const [editingReview, setEditingReview] = useState(null);
-  const [showSettings, setShowSettings] = useState(false);
+  const [selectedTrack, setSelectedTrack] = useState(null);
+  const [reviewItem, setReviewItem] = useState(null);
+  const [reviewType, setReviewType] = useState('album'); // 'album' | 'track'
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showCreateList, setShowCreateList] = useState(false);
 
-  // MiniPlayer state
+  // Player de Áudio (Previews de 30s)
   const [currentTrack, setCurrentTrack] = useState(null);
 
-  // Load Initial Data when logged in
+
+  // Sincronizar com Supabase Auth
+  useEffect(() => {
+    if (supabase) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          const userObj = {
+            id: session.user.id,
+            email: session.user.email,
+            full_name: session.user.user_metadata?.full_name || session.user.email.split('@')[0],
+            username: session.user.user_metadata?.username || session.user.email.split('@')[0],
+            avatar_url: session.user.user_metadata?.avatar_url || ''
+          };
+          localStorage.setItem('soundlog_session', JSON.stringify(userObj));
+          setUserSession(userObj);
+        }
+      });
+    }
+  }, []);
+
+  // Carregar dados quando a sessão estiver ativa
   useEffect(() => {
     if (userSession) {
-      loadData();
+      loadInitialData();
     }
   }, [userSession]);
 
-  const loadData = async () => {
+  const loadInitialData = async () => {
     setLoading(true);
-    const [trending, revs, prof] = await Promise.all([
+    const [trend, revs, prof, follows] = await Promise.all([
       getTrendingAlbums(),
       fetchReviews(),
-      fetchProfile(userSession)
+      fetchProfile(userSession),
+      fetchFollows(userSession.id)
     ]);
-    setTrendingAlbums(trending);
-    setReviews(revs);
+
+    setTrendingAlbums(trend || []);
+    setReviews(revs || []);
+    setFollowingIds(follows || []);
     setProfile(prof || {
-      full_name: userSession.full_name,
+      id: userSession.id,
+      full_name: userSession.full_name || userSession.username,
       username: userSession.username,
-      avatar_url: userSession.avatar_url,
-      bio: ''
+      avatar_url: userSession.avatar_url || '',
+      bio: '',
+      favorite_artist: '',
+      favorite_genres: []
     });
     setLists(getLocalLists());
-    setUserTrackRatings(getLocalTrackRatings());
     setLoading(false);
   };
 
-  // Logout Handler
-  const handleLogout = () => {
-    if (window.confirm('Deseja realmente sair da sua conta?')) {
-      localStorage.removeItem('soundboxd_session');
+  // Recalcular recomendações personalizadas sempre que houver novas avaliações ou alterações no perfil
+  useEffect(() => {
+    if (userSession) {
+      let isMounted = true;
+      const runPersonalization = async () => {
+        try {
+          const [homeData, exploreData] = await Promise.all([
+            getPersonalizedHomeData(reviews, profile),
+            getPersonalizedExploreData(reviews, profile)
+          ]);
+          if (isMounted) {
+            setPersonalizedHome(homeData);
+            setPersonalizedExplore(exploreData);
+          }
+        } catch (err) {
+          console.error('Erro ao calcular recomendações:', err);
+        }
+      };
+      runPersonalization();
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [reviews, profile, userSession]);
+
+  // Logout
+  const handleLogout = async () => {
+    if (window.confirm('Deseja realmente sair da sua conta no Soundlog?')) {
+      localStorage.removeItem('soundlog_session');
       if (supabase) {
-        supabase.auth.signOut();
+        await supabase.auth.signOut();
       }
       setUserSession(null);
+      setProfile(null);
+      setReviews([]);
+      setLists([]);
+      setFollowingIds([]);
+      setActiveTab('home');
     }
   };
 
-  // If user is not logged in, display Auth Screen first!
-  if (!userSession) {
-    return <AuthScreen onLoginSuccess={(session) => setUserSession(session)} />;
-  }
-
-  // Search Handler (Supports both Tracks and Albums)
+  // Busca em tempo real (Álbuns, Faixas e Ouvintes/Usuários)
   const handleSearch = async (term) => {
     setSearchTerm(term);
     if (!term.trim()) {
-      setSearchResults({ albums: [], tracks: [] });
+      setSearchResults({ albums: [], tracks: [], users: [] });
       return;
     }
     setIsSearching(true);
-    const res = await searchAll(term);
-    setSearchResults(res);
+    const [musicResults, userResults] = await Promise.all([
+      searchAll(term),
+      searchUsers(term, userSession?.id)
+    ]);
+    setSearchResults({
+      albums: musicResults.albums || [],
+      tracks: musicResults.tracks || [],
+      users: userResults || []
+    });
     setIsSearching(false);
   };
 
-  // Track Rating from Search Results
-  const handleRateTrackFromSearch = async (track, rating) => {
-    const key = `${track.album_id}_${track.track_id}`;
-    const current = userTrackRatings[key] || {};
-    const updated = {
-      album_id: String(track.album_id),
-      track_id: String(track.track_id),
-      track_name: track.track_name,
-      artist_name: track.artist_name,
-      rating,
-      is_favorite: Boolean(current.is_favorite)
-    };
-
-    setUserTrackRatings(prev => ({ ...prev, [key]: updated }));
-    await saveTrackRating(updated);
+  // Alternar seguir / deixar de seguir usuário
+  const handleToggleFollow = async (targetUserId) => {
+    if (!userSession?.id || !targetUserId) return;
+    const result = await toggleFollowUser(userSession.id, targetUserId);
+    setFollowingIds(result.following);
   };
 
-  const handleToggleFavoriteTrackFromSearch = async (track) => {
-    const key = `${track.album_id}_${track.track_id}`;
-    const current = userTrackRatings[key] || {};
-    const updated = {
-      album_id: String(track.album_id),
-      track_id: String(track.track_id),
-      track_name: track.track_name,
-      artist_name: track.artist_name,
-      rating: current.rating || 5.0,
-      is_favorite: !current.is_favorite
-    };
-
-    setUserTrackRatings(prev => ({ ...prev, [key]: updated }));
-    await saveTrackRating(updated);
+  // Handlers para Abertura de Avaliação
+  const handleOpenAlbumReview = (album) => {
+    setSelectedAlbum(null);
+    setReviewItem(album);
+    setReviewType('album');
   };
 
-  // Review Handlers
+  const handleOpenTrackReview = (track) => {
+    setSelectedTrack(null);
+    setReviewItem(track);
+    setReviewType('track');
+  };
+
+  // Salvar avaliação / resenha
   const handleSaveReview = async (reviewData) => {
     const saved = await createOrUpdateReview(reviewData);
-    setReviewAlbum(null);
-    setEditingReview(null);
-    
-    // Update reviews state in React instantly!
-    setReviews(prev => {
-      const idx = prev.findIndex(r => r.id === saved.id || String(r.album_id) === String(saved.album_id));
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = saved;
-        return copy;
-      }
-      return [saved, ...prev];
-    });
+    const updated = await fetchReviews();
+    setReviews(updated);
+    setReviewItem(null);
   };
 
-  const handleDeleteReview = async (id) => {
-    if (window.confirm('Deseja excluir esta avaliação do seu diário?')) {
-      await deleteReview(id);
-      setSelectedAlbum(null);
-      setReviewAlbum(null);
-      setEditingReview(null);
-      setReviews(prev => prev.filter(r => r.id !== id));
-    }
+  // Excluir avaliação
+  const handleDeleteReview = async (reviewId) => {
+    await deleteReview(reviewId);
+    const updated = await fetchReviews();
+    setReviews(updated);
   };
 
-  const handleDeleteTrackRatingFromApp = async (albumId, trackId) => {
-    const updated = await deleteTrackRating(albumId, trackId);
-    setUserTrackRatings({ ...updated });
+  // Salvar nova lista
+  const handleSaveList = (newList) => {
+    const updated = saveLocalList(newList);
+    setLists(updated);
+    setShowCreateList(false);
   };
 
-  // Profile Save Handler
+  // Excluir lista
+  const handleDeleteList = (listId) => {
+    const updated = deleteList(listId);
+    setLists(updated);
+  };
+
+  // Salvar perfil
   const handleSaveProfile = async (updatedProfile) => {
     await updateProfile(updatedProfile);
     setProfile(updatedProfile);
     setShowEditProfile(false);
   };
 
-  // List Save & Delete Handlers
-  const handleSaveList = (newList) => {
-    const updatedLists = saveLocalList(newList);
-    setLists(updatedLists);
-    setShowCreateList(false);
-  };
+  // -------------------------------------------------------------------------
+  // 1. SE NÃO HOUVER SESSÃO AUTENTICADA: APRESENTA EXCLUSIVAMENTE AUTH
+  // -------------------------------------------------------------------------
+  if (!userSession) {
+    return (
+      <AuthScreen
+        onLoginSuccess={(session, isNewUser) => {
+          setUserSession(session);
+          if (isNewUser) {
+            setShowOnboarding(true);
+          }
+        }}
+      />
+    );
+  }
 
-  const handleDeleteList = async (listId, title) => {
-    if (window.confirm(`Deseja excluir a coleção "${title}"?`)) {
-      const updated = await deleteList(listId);
-      setLists(updated);
-    }
-  };
-
-  // Quick helper to check if an album has been reviewed
-  const getReviewForAlbum = (albumId) => {
-    if (!albumId) return null;
-    return reviews.find(r => String(r.album_id) === String(albumId));
-  };
-
-  const userTrackList = Object.values(userTrackRatings);
-  const userAvgRating = (reviews.length + userTrackList.length) > 0
-    ? (
-        ([...reviews.map(r => Number(r.rating || 0)), ...userTrackList.map(t => Number(t.rating || 0))].reduce((a, b) => a + b, 0)) /
-        (reviews.length + userTrackList.length)
-      ).toFixed(1)
-    : '0.0';
-
+  // -------------------------------------------------------------------------
+  // 2. INTERFACE PRINCIPAL AUTENTICADA DO SOUNDLOG
+  // -------------------------------------------------------------------------
   return (
-    <>
-      {/* Mobile Top Header with Logout Option */}
-      <Header onOpenSettings={() => setShowSettings(true)} />
+    <div className="min-h-screen soundlog-paper paper-texture flex flex-col pb-16 md:pb-0">
+      
+      {/* CONTAINER PRINCIPAL */}
+      <div className="max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex-1">
+        
+        <Header
+          activeTab={activeTab}
+          onSelectTab={(tab) => {
+            setActiveTab(tab);
+            setSearchTerm('');
+            setSearchResults({ albums: [], tracks: [] });
+          }}
+          profile={profile}
+          onOpenEditProfile={() => setShowEditProfile(true)}
+          onLogout={handleLogout}
+          onSearch={(term) => {
+            handleSearch(term);
+            if (term.trim() && activeTab !== 'explore') {
+              setActiveTab('explore');
+            }
+          }}
+          searchTerm={searchTerm}
+        />
 
-      {/* Logout Bar Banner */}
-      <div style={{ background: 'rgba(15,23,42,0.6)', padding: '6px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', borderBottom: '1px solid var(--border-color)' }}>
-        <span style={{ color: 'var(--text-secondary)' }}>
-          Conectado como <strong style={{ color: '#fff' }}>@{profile?.username || userSession.username}</strong>
-        </span>
-        <button
-          onClick={handleLogout}
-          style={{ background: 'none', border: 'none', color: '#ff4d6d', fontSize: '11px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-        >
-          <LogOut size={12} /> Sair
-        </button>
-      </div>
-
-      {/* Main Screen Content */}
-      <main className="app-content">
-
-        {/* TAB 1: INÍCIO / HOME (PERSONALIZADA NAS AVALIAÇÕES DO USUÁRIO) */}
+        {/* =================================================================== */}
+        {/* ABA: INÍCIO (HOME EDITORIAL & PERSONALIZADO) */}
+        {/* =================================================================== */}
         {activeTab === 'home' && (
-          <div>
-            {/* User Personal Activity Hero Banner */}
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.25) 0%, rgba(37, 99, 235, 0.18) 100%)',
-              border: '1px solid rgba(192, 132, 252, 0.3)',
-              borderRadius: '18px',
-              padding: '18px',
-              marginBottom: '20px',
-              position: 'relative'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                <div>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--color-purple-light)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    SEU SOUNDBOXD PERSONALIZADO
-                  </span>
-                  <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff', margin: '2px 0' }}>
-                    Olá, {profile?.full_name || userSession.full_name || 'Ouvinte'}! 🎧
-                  </h2>
-                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    Confira seu diário e suas últimas avaliações de música.
-                  </p>
-                </div>
+          <div className="space-y-12">
+            
+            {/* ESTADO 1: USUÁRIO NOVO SEM AVALIAÇÕES */}
+            {reviews.length === 0 ? (
+              <>
+                {/* MASTHEAD DE PRIMEIRO USO */}
+                <section className="p-8 sm:p-10 bg-[#FAF8F5] border-2 border-[#151413] shadow-sm space-y-6">
+                  <div className="flex flex-wrap items-center gap-2 font-mono-meta text-xs">
+                    <span className="editorial-badge editorial-badge-accent">BEM-VINDO AO SOUNDLOG</span>
+                    <span className="editorial-badge">ARQUIVO MUSICAL PESSOAL</span>
+                  </div>
 
-                <button
-                  className="btn-primary"
-                  style={{ width: 'auto', padding: '10px 14px', fontSize: '12px' }}
-                  onClick={() => setActiveTab('search')}
-                >
-                  <Plus size={16} /> Avaliar Música
-                </button>
-              </div>
+                  <div className="max-w-3xl space-y-3">
+                    <h1 className="font-editorial-serif text-3xl sm:text-5xl font-bold text-[#151413] tracking-tight leading-tight">
+                      Seu Diário e Arquivo Crítico de Música.
+                    </h1>
+                    <p className="font-reading-serif text-base sm:text-lg text-[#454038] leading-relaxed">
+                      O Soundlog foi feito para quem escuta música com atenção. Registre suas impressões sobre discos e canções, atribua notas de 0.5 a 5.0 estrelas e descubra novas obras personalizadas estritamente conforme o seu gosto.
+                    </p>
+                  </div>
 
-              {/* Personal Quick Stats */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', background: 'rgba(15,23,42,0.6)', padding: '10px', borderRadius: '12px' }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff' }}>{reviews.length}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>ÁLBUNS</div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--color-purple-light)' }}>{userTrackList.length}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>MÚSICAS</div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--color-amber)' }}>{userAvgRating} ★</div>
-                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>SUA MÉDIA</div>
-                </div>
-              </div>
-            </div>
-
-            {/* SECTION 1: SUAS RESENHAS DE ÁLBUNS RECENTES */}
-            <div style={{ marginBottom: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <BookOpen size={16} color="var(--color-purple-light)" /> Suas Últimas Resenhas de Álbuns
-                </h3>
-                {reviews.length > 0 && (
-                  <button
-                    onClick={() => setActiveTab('diary')}
-                    style={{ background: 'none', border: 'none', color: 'var(--color-purple-light)', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-                  >
-                    Ver todas ({reviews.length})
-                  </button>
-                )}
-              </div>
-
-              {reviews.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '24px 16px', background: 'var(--bg-card)', borderRadius: '14px', border: '1px solid var(--border-color)' }}>
-                  <Disc size={32} color="var(--text-muted)" style={{ margin: '0 auto 8px auto' }} />
-                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Você ainda não escreveu nenhuma resenha de álbum.</p>
-                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Resenhas completas de texto estão habilitadas para avaliação de álbuns!
-                  </p>
-                  <button
-                    className="btn-primary"
-                    style={{ margin: '12px auto 0 auto', width: 'auto', padding: '8px 16px', fontSize: '12px' }}
-                    onClick={() => setActiveTab('search')}
-                  >
-                    Buscar Álbum para Resenhar
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {reviews.slice(0, 3).map((rev) => (
-                    <div
-                      key={rev.id}
-                      style={{
-                        background: 'var(--bg-card)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '12px',
-                        padding: '12px',
-                        display: 'flex',
-                        gap: '12px'
+                  <div className="pt-2 flex flex-wrap items-center gap-4 font-mono-meta text-xs">
+                    <button
+                      onClick={() => {
+                        setActiveTab('explore');
+                        setSearchFilter('tracks');
                       }}
+                      className="btn-editorial-primary py-3 px-6 text-sm flex items-center gap-2"
                     >
-                      <img
-                        src={rev.cover_url}
-                        alt=""
-                        style={{ width: '64px', height: '64px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }}
-                        onClick={() => setSelectedAlbum(rev)}
-                      />
-                      <div style={{ flex: 1, overflow: 'hidden' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <span>★</span>
+                      <span>Avaliar uma música</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setActiveTab('explore');
+                        setSearchFilter('albums');
+                      }}
+                      className="btn-editorial-secondary py-3 px-6 text-sm flex items-center gap-2"
+                    >
+                      <span>★</span>
+                      <span>Avaliar um álbum</span>
+                    </button>
+                  </div>
+                </section>
+
+                {/* SUGESTÕES GERAIS PARA INICIAR O ARQUIVO */}
+                {trendingAlbums.length > 0 && (
+                  <section className="space-y-4">
+                    <div className="flex items-baseline justify-between border-b border-rule pb-2">
+                      <div>
+                        <h3 className="font-editorial-serif text-2xl font-bold text-[#151413]">
+                          Sugestões para Iniciar seu Arquivo
+                        </h3>
+                        <p className="text-xs font-mono-meta text-[#58534C] mt-0.5">
+                          Discos essenciais e referências da música brasileira e internacional
+                        </p>
+                      </div>
+                      <span className="editorial-badge">SELEÇÃO EDITORIAL</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+                      {trendingAlbums.slice(0, 6).map((alb) => (
+                        <div key={alb.album_id} className="space-y-2 group">
+                          <div
+                            onClick={() => setSelectedAlbum(alb)}
+                            className="aspect-square bg-[#151413] border border-[#151413] shadow-sm overflow-hidden cursor-pointer"
+                          >
+                            <img
+                              src={alb.cover_url}
+                              alt=""
+                              className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200"
+                            />
+                          </div>
                           <div>
                             <h4
-                              style={{ fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
-                              onClick={() => setSelectedAlbum(rev)}
+                              onClick={() => setSelectedAlbum(alb)}
+                              className="font-editorial-serif text-sm font-bold text-[#151413] truncate cursor-pointer hover:text-[#BA3822]"
                             >
-                              {rev.album_title}
+                              {alb.album_title}
                             </h4>
-                            <p style={{ fontSize: '11px', color: 'var(--color-purple-light)', fontWeight: 600 }}>{rev.artist_name}</p>
+                            <p className="font-mono-meta text-xs text-[#58534C] truncate">{alb.artist_name}</p>
+                            <div className="pt-2 flex items-center gap-2 font-mono-meta text-[11px]">
+                              <button
+                                onClick={() => handleOpenAlbumReview(alb)}
+                                className="text-[#BA3822] font-bold hover:underline"
+                              >
+                                ★ Avaliar
+                              </button>
+                              <span className="text-[#888075]">·</span>
+                              <button
+                                onClick={() => setSelectedAlbum(alb)}
+                                className="text-[#58534C] hover:underline"
+                              >
+                                Ver ficha
+                              </button>
+                            </div>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <StarRating rating={rev.rating} readonly size={12} />
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </>
+            ) : (
+              /* ESTADO 2: USUÁRIO COM AVALIAÇÕES (EXPERIÊNCIA 100% PERSONALIZADA) */
+              <>
+                {/* DISCO HERO PERSONALIZADO */}
+                {(() => {
+                  const hero = personalizedHome.heroAlbum || trendingAlbums[0];
+                  if (!hero) return null;
+                  return (
+                    <section className="border-b-2 border-[#151413] pb-10">
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+                        <div className="md:col-span-5">
+                          <div
+                            onClick={() => setSelectedAlbum(hero)}
+                            className="cursor-pointer group aspect-square bg-[#151413] border-2 border-[#151413] shadow-md overflow-hidden relative"
+                          >
+                            <img
+                              src={hero.cover_url}
+                              alt=""
+                              className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="md:col-span-7 flex flex-col justify-between space-y-4">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2 mb-2 font-mono-meta text-xs">
+                              <span className="editorial-badge editorial-badge-accent">
+                                {personalizedHome.isPersonalized ? 'RECOMENDADO PARA VOCÊ' : 'DISCO EM EVIDÊNCIA'}
+                              </span>
+                              <span className="editorial-badge">{hero.release_year || '1972'}</span>
+                              <span className="editorial-badge">{hero.genre || 'MPB / PSICODELIA'}</span>
+                            </div>
+
+                            <h2 className="font-editorial-serif text-3xl sm:text-4xl font-black text-[#151413] tracking-tight leading-tight">
+                              {hero.album_title}
+                            </h2>
+                            <h3 className="font-editorial-serif text-xl text-[#58534C] font-semibold mt-1">
+                              {hero.artist_name}
+                            </h3>
+
+                            {personalizedHome.contextReason && (
+                              <div className="mt-4 p-3 bg-[#FAF8F5] border-l-2 border-[#BA3822] font-reading-serif text-xs text-[#454038] italic">
+                                ✦ {personalizedHome.contextReason}
+                              </div>
+                            )}
+
+                            <p className="font-reading-serif text-sm text-[#454038] mt-3 leading-relaxed">
+                              Obra recomendada com base nas suas afinidades musicais e notas atribuídas no diário. Explore as faixas, ouça prévias e registre sua avaliação.
+                            </p>
+                          </div>
+
+                          <div className="pt-4 border-t border-rule flex flex-wrap items-center gap-3 font-mono-meta text-xs">
                             <button
-                              onClick={() => handleDeleteReview(rev.id)}
-                              title="Excluir esta avaliação"
-                              style={{ background: 'none', border: 'none', color: '#ff4d6d', cursor: 'pointer', padding: '2px', opacity: 0.8 }}
+                              onClick={() => setSelectedAlbum(hero)}
+                              className="btn-editorial-primary text-xs py-2 px-4"
                             >
-                              <Trash2 size={14} />
+                              Ver Ficha Completa
+                            </button>
+                            <button
+                              onClick={() => handleOpenAlbumReview(hero)}
+                              className="btn-editorial-secondary text-xs py-2 px-4"
+                            >
+                              + Avaliar / Diário
                             </button>
                           </div>
                         </div>
-                        {rev.review_text && (
-                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px', fontStyle: 'italic', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                            "{rev.review_text}"
-                          </p>
-                        )}
-                        <div style={{ display: 'flex', gap: '10px', fontSize: '10px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                          <span>{new Date(rev.listened_date || rev.created_at).toLocaleDateString('pt-BR')}</span>
-                          {rev.is_relisten && <span style={{ color: 'var(--color-purple-light)' }}>• Re-ouviu</span>}
-                          {rev.is_favorite && <span style={{ color: '#ff4d6d' }}>• Favorito</span>}
-                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    </section>
+                  );
+                })()}
 
-            {/* SECTION 2: SUAS MÚSICAS AVALIADAS RECENTEMENTE */}
-            {userTrackList.length > 0 && (
-              <div style={{ marginBottom: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <h3 style={{ fontSize: '14px', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Music size={16} color="var(--color-blue-mid)" /> Suas Músicas Avaliadas ({userTrackList.length})
-                  </h3>
-                  <button
-                    onClick={() => setActiveTab('profile')}
-                    style={{ background: 'none', border: 'none', color: 'var(--color-purple-light)', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-                  >
-                    Ver todas no perfil
-                  </button>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {userTrackList.slice(0, 4).map((tr, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        background: 'var(--bg-card)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '10px',
-                        padding: '10px 12px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <div style={{ overflow: 'hidden' }}>
-                        <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {tr.track_name}
-                        </h4>
-                        <p style={{ fontSize: '11px', color: 'var(--color-purple-light)', fontWeight: 600 }}>
-                          {tr.artist_name}
+                {/* SEÇÃO: MAIS OBRAS SEMELHANTES PERSONALIZADAS */}
+                {personalizedHome.recommendedAlbums?.length > 0 && (
+                  <section className="space-y-4">
+                    <div className="flex items-baseline justify-between border-b border-rule pb-2">
+                      <div>
+                        <h3 className="font-editorial-serif text-2xl font-bold text-[#151413]">
+                          Mais Obras Semelhantes
+                        </h3>
+                        <p className="text-xs font-mono-meta text-[#58534C] mt-0.5">
+                          Discos alinhados com suas preferências e notas mais altas
                         </p>
                       </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                        {tr.is_favorite && <Heart size={14} color="#ff4d6d" fill="#ff4d6d" />}
-                        <StarRating rating={tr.rating} readonly size={12} />
-                      </div>
+                      <span className="editorial-badge">POR AFINIDADE</span>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
-            {/* SECTION 3: ÁLBUNS EM DESTAQUE E DESCOBERTA */}
-            <div style={{ marginBottom: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Flame size={16} color="var(--color-purple-light)" /> Descubra Novos Álbuns
-                </h3>
-                <button
-                  onClick={() => setActiveTab('search')}
-                  style={{ background: 'none', border: 'none', color: 'var(--color-purple-light)', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-                >
-                  Buscar mais
-                </button>
-              </div>
-
-              {loading ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                  Carregando catálogo...
-                </div>
-              ) : (
-                <div className="album-grid">
-                  {trendingAlbums.slice(0, 6).map((album) => (
-                    <AlbumCard
-                      key={album.album_id}
-                      album={album}
-                      review={getReviewForAlbum(album.album_id)}
-                      onClick={(alb) => setSelectedAlbum(alb)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-          </div>
-        )}
-
-        {/* TAB 2: BUSCAR / SEARCH (Supports Músicas & Álbuns) */}
-        {activeTab === 'search' && (
-          <div>
-            {/* Search Bar Input */}
-            <div style={{ position: 'relative', marginBottom: '12px' }}>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="Buscar por música, artista ou álbum..."
-                value={searchTerm}
-                onChange={(e) => handleSearch(e.target.value)}
-                style={{ paddingLeft: '40px' }}
-                autoFocus
-              />
-              <Search size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-            </div>
-
-            {/* Filter Pills: Músicas vs Álbuns vs Todas */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-              <button
-                type="button"
-                onClick={() => setSearchFilter('tracks')}
-                style={{
-                  flex: 1,
-                  padding: '8px',
-                  borderRadius: '20px',
-                  border: searchFilter === 'tracks' ? '1px solid var(--color-purple-light)' : '1px solid var(--border-color)',
-                  background: searchFilter === 'tracks' ? 'rgba(124, 58, 237, 0.2)' : 'var(--bg-card)',
-                  color: searchFilter === 'tracks' ? 'var(--color-purple-light)' : 'var(--text-secondary)',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px'
-                }}
-              >
-                <Music size={14} /> Músicas ({searchResults.tracks.length})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSearchFilter('albums')}
-                style={{
-                  flex: 1,
-                  padding: '8px',
-                  borderRadius: '20px',
-                  border: searchFilter === 'albums' ? '1px solid var(--color-purple-light)' : '1px solid var(--border-color)',
-                  background: searchFilter === 'albums' ? 'rgba(124, 58, 237, 0.2)' : 'var(--bg-card)',
-                  color: searchFilter === 'albums' ? 'var(--color-purple-light)' : 'var(--text-secondary)',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px'
-                }}
-              >
-                <Disc size={14} /> Álbuns ({searchResults.albums.length})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSearchFilter('all')}
-                style={{
-                  padding: '8px 14px',
-                  borderRadius: '20px',
-                  border: searchFilter === 'all' ? '1px solid var(--color-purple-light)' : '1px solid var(--border-color)',
-                  background: searchFilter === 'all' ? 'rgba(124, 58, 237, 0.2)' : 'var(--bg-card)',
-                  color: searchFilter === 'all' ? 'var(--color-purple-light)' : 'var(--text-secondary)',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: 'pointer'
-                }}
-              >
-                Todas
-              </button>
-            </div>
-
-            {isSearching ? (
-              <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)', fontSize: '13px' }}>
-                Buscando músicas e álbuns na iTunes Music API...
-              </div>
-            ) : (searchResults.tracks.length > 0 || searchResults.albums.length > 0) ? (
-              <div>
-
-                {/* TRACKS / MÚSICAS RESULTS SECTION */}
-                {(searchFilter === 'tracks' || searchFilter === 'all') && searchResults.tracks.length > 0 && (
-                  <div style={{ marginBottom: '24px' }}>
-                    <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', marginBottom: '10px', fontWeight: 800 }}>
-                      MÚSICAS ENCONTRADAS ({searchResults.tracks.length})
-                    </p>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {searchResults.tracks.map((track) => {
-                        const isPlaying = currentTrack?.track_id === track.track_id;
-                        const key = `${track.album_id}_${track.track_id}`;
-                        const currentData = userTrackRatings[key] || {};
-                        const rating = currentData.rating || 0;
-                        const isFav = currentData.is_favorite || false;
-
-                        return (
-                          <div
-                            key={track.track_id}
-                            style={{
-                              background: 'var(--bg-card)',
-                              border: '1px solid var(--border-color)',
-                              borderRadius: '12px',
-                              padding: '12px',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '8px'
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                              <img
-                                src={track.cover_url}
-                                alt=""
-                                style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }}
-                                onClick={() => setSelectedAlbum(track)}
-                              />
-                              <div style={{ flex: 1, overflow: 'hidden' }}>
-                                <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {track.track_name}
-                                </h4>
-                                <p style={{ fontSize: '11px', color: 'var(--color-purple-light)', fontWeight: 600 }}>
-                                  {track.artist_name} • <span style={{ color: 'var(--text-secondary)' }}>{track.album_title}</span>
-                                </p>
-                              </div>
-
-                              {track.preview_url && (
-                                <button
-                                  onClick={() => setCurrentTrack({ ...track, cover_url: track.cover_url })}
-                                  style={{
-                                    background: isPlaying ? 'var(--color-purple-main)' : 'rgba(255,255,255,0.1)',
-                                    color: '#fff',
-                                    border: 'none',
-                                    borderRadius: '50%',
-                                    width: '32px',
-                                    height: '32px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer',
-                                    flexShrink: 0
-                                  }}
-                                >
-                                  {isPlaying ? <Pause size={16} fill="#fff" /> : <Play size={16} style={{ marginLeft: '2px' }} />}
-                                </button>
-                              )}
-                            </div>
-
-                            {/* Direct Song Rating & Actions bar */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 700 }}>Avaliar:</span>
-                                <StarRating
-                                  rating={rating}
-                                  onRatingChange={(val) => handleRateTrackFromSearch(track, val)}
-                                  size={14}
-                                />
-                              </div>
-
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <button
-                                  onClick={() => handleToggleFavoriteTrackFromSearch(track)}
-                                  style={{ background: 'none', border: 'none', color: isFav ? '#ff4d6d' : 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}
-                                >
-                                  <Heart size={14} fill={isFav ? '#ff4d6d' : 'none'} />
-                                  <span>{isFav ? 'Destaque' : 'Favoritar'}</span>
-                                </button>
-
-                                <button
-                                  onClick={() => setSelectedAlbum(track)}
-                                  style={{ background: 'none', border: 'none', color: 'var(--color-purple-light)', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
-                                >
-                                  Ver Álbum
-                                </button>
-                              </div>
-                            </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+                      {personalizedHome.recommendedAlbums.slice(0, 6).map((alb) => (
+                        <div
+                          key={alb.album_id}
+                          onClick={() => setSelectedAlbum(alb)}
+                          className="space-y-2 cursor-pointer group"
+                        >
+                          <div className="aspect-square bg-[#151413] border border-[#151413] shadow-sm overflow-hidden">
+                            <img
+                              src={alb.cover_url}
+                              alt=""
+                              className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200"
+                            />
                           </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* ALBUMS RESULTS SECTION */}
-                {(searchFilter === 'albums' || searchFilter === 'all') && searchResults.albums.length > 0 && (
-                  <div>
-                    <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', marginBottom: '10px', fontWeight: 800 }}>
-                      ÁLBUNS ENCONTRADOS ({searchResults.albums.length})
-                    </p>
-                    <div className="album-grid">
-                      {searchResults.albums.map((album) => (
-                        <AlbumCard
-                          key={album.album_id}
-                          album={album}
-                          review={getReviewForAlbum(album.album_id)}
-                          onClick={(alb) => setSelectedAlbum(alb)}
-                        />
+                          <div>
+                            <h4 className="font-editorial-serif text-sm font-bold text-[#151413] truncate leading-tight group-hover:text-[#BA3822]">
+                              {alb.album_title}
+                            </h4>
+                            <p className="font-mono-meta text-xs text-[#58534C] truncate">{alb.artist_name}</p>
+                          </div>
+                        </div>
                       ))}
                     </div>
-                  </div>
+                  </section>
                 )}
 
+                {/* SEÇÃO: MÚSICAS SUGERIDAS POR AFINIDADE (COM PRÉVIA 30S) */}
+                {personalizedHome.recommendedTracks?.length > 0 && (
+                  <section className="space-y-4">
+                    <div className="flex items-baseline justify-between border-b border-rule pb-2">
+                      <div>
+                        <h3 className="font-editorial-serif text-2xl font-bold text-[#151413]">
+                          Músicas Sugeridas por Afinidade
+                        </h3>
+                        <p className="text-xs font-mono-meta text-[#58534C] mt-0.5">
+                          Canções individuais selecionadas com base no seu diário musical
+                        </p>
+                      </div>
+                      <span className="editorial-badge editorial-badge-accent">PRÉVIA DE ÁUDIO</span>
+                    </div>
+
+                    <div className="font-mono-meta text-xs divide-y divide-rule border-b border-rule bg-[#FAF8F5] border border-rule">
+                      {personalizedHome.recommendedTracks.slice(0, 6).map((tr) => (
+                        <div
+                          key={tr.track_id}
+                          className="py-3 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#EFEAE1] transition-colors"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {tr.preview_url ? (
+                              <button
+                                onClick={() => setCurrentTrack(tr)}
+                                className="w-7 h-7 bg-[#151413] text-white flex items-center justify-center text-[10px] shrink-0 hover:bg-[#BA3822] transition-colors"
+                                title="Tocar prévia"
+                              >
+                                {currentTrack?.track_id === tr.track_id ? '❚❚' : '▶'}
+                              </button>
+                            ) : (
+                              <div className="w-7 h-7 bg-transparent shrink-0" />
+                            )}
+
+                            <img
+                              src={tr.cover_url || 'https://via.placeholder.com/100'}
+                              alt=""
+                              className="w-9 h-9 object-cover border border-[#151413] shrink-0"
+                            />
+
+                            <div className="min-w-0">
+                              <button
+                                onClick={() => setSelectedTrack(tr)}
+                                className="font-bold text-[#151413] hover:text-[#BA3822] hover:underline text-left truncate block text-sm font-editorial-serif"
+                              >
+                                {tr.track_name}
+                              </button>
+                              <span className="text-[#58534C] block text-[11px] truncate">
+                                {tr.artist_name} {tr.album_title ? `· Álbum: ${tr.album_title}` : ''}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3 shrink-0 pl-10 sm:pl-0">
+                            <button
+                              onClick={() => setSelectedTrack(tr)}
+                              className="btn-editorial-secondary text-[11px] py-1 px-2.5"
+                            >
+                              Ver música →
+                            </button>
+                            <button
+                              onClick={() => handleOpenTrackReview(tr)}
+                              className="btn-editorial-primary text-[11px] py-1 px-2.5"
+                            >
+                              ★ Avaliar faixa
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </>
+            )}
+
+            {/* SEÇÃO DUPLA: ATIVIDADE REAL DO USUÁRIO & MAIS OUVIDOS NA SEMANA */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              
+              {/* ATIVIDADE DO USUÁRIO (7 cols) */}
+              <div className="lg:col-span-7 space-y-4">
+                <div className="flex items-baseline justify-between border-b border-rule pb-2">
+                  <h3 className="font-editorial-serif text-xl font-bold text-[#151413]">
+                    Sua Atividade Recente
+                  </h3>
+                  <span className="text-xs font-mono-meta text-[#888075]">DIÁRIO PESSOAL</span>
+                </div>
+
+                {reviews.length === 0 ? (
+                  <div className="p-8 border border-rule bg-[#FAF8F5] text-center space-y-3">
+                    <span className="font-editorial-serif text-base font-bold text-[#151413] block">
+                      Sua atividade aparecerá aqui quando você começar a avaliar músicas ou álbuns.
+                    </span>
+                    <p className="font-reading-serif text-xs text-[#58534C] max-w-sm mx-auto">
+                      Explore o acervo musical para começar a construir seu histórico crítico.
+                    </p>
+                    <div className="pt-1 flex justify-center gap-3">
+                      <button
+                        onClick={() => {
+                          setActiveTab('explore');
+                          setSearchFilter('tracks');
+                        }}
+                        className="btn-editorial-primary text-xs py-2 px-4"
+                      >
+                        Avaliar faixa
+                      </button>
+                      <button
+                        onClick={() => {
+                          setActiveTab('explore');
+                          setSearchFilter('albums');
+                        }}
+                        className="btn-editorial-secondary text-xs py-2 px-4"
+                      >
+                        Avaliar disco
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {reviews.slice(0, 5).map((rev) => {
+                      const isTrack = rev.item_type === 'track';
+                      return (
+                        <article key={rev.id} className="border-b border-rule pb-4 flex gap-4 items-start">
+                          <img
+                            src={rev.cover_url || 'https://via.placeholder.com/300'}
+                            alt=""
+                            className="w-14 h-14 object-cover border border-[#151413] shrink-0 cursor-pointer"
+                            onClick={() => {
+                              if (isTrack) {
+                                setSelectedTrack({
+                                  track_id: rev.track_id,
+                                  track_name: rev.track_name,
+                                  artist_name: rev.artist_name,
+                                  album_id: rev.album_id,
+                                  album_title: rev.album_title,
+                                  cover_url: rev.cover_url,
+                                  duration_formatted: rev.duration_formatted,
+                                  release_year: rev.release_year
+                                });
+                              } else {
+                                setSelectedAlbum({
+                                  album_id: rev.album_id,
+                                  album_title: rev.album_title,
+                                  artist_name: rev.artist_name,
+                                  cover_url: rev.cover_url,
+                                  release_year: rev.release_year,
+                                  genre: rev.genre
+                                });
+                              }
+                            }}
+                          />
+                          <div className="space-y-1 flex-1 min-w-0">
+                            <div className="flex justify-between items-baseline">
+                              <div className="flex items-center gap-2 truncate">
+                                <span className={`editorial-badge ${isTrack ? 'editorial-badge-accent' : ''}`}>
+                                  {isTrack ? 'MÚSICA' : 'ÁLBUM'}
+                                </span>
+                                <h4 className="font-editorial-serif text-base font-bold text-[#151413] truncate">
+                                  {isTrack ? rev.track_name : rev.album_title}
+                                  <span className="text-xs text-[#58534C] font-normal ml-1">· {rev.artist_name}</span>
+                                </h4>
+                              </div>
+                              <span className="text-xs font-mono-meta font-bold text-[#BA3822] shrink-0 pl-2">
+                                ★ {Number(rev.rating).toFixed(1)}
+                              </span>
+                            </div>
+
+                            {rev.review_text && (
+                              <p className="font-reading-serif text-xs text-[#38332C] line-clamp-2">
+                                "{rev.review_text}"
+                              </p>
+                            )}
+
+                            <div className="text-[10px] font-mono-meta text-[#888075]">
+                              {isTrack
+                                ? `Avaliação de música ${rev.album_title ? `(Álbum: ${rev.album_title})` : ''} · Ouvido em ${rev.listened_date || 'Hoje'}`
+                                : `Avaliação do álbum · Ouvido em ${rev.listened_date || 'Hoje'} (${rev.media_format || 'Vinil'})`
+                              }
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            ) : searchTerm ? (
-              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', fontSize: '13px' }}>
-                Nenhuma música ou álbum encontrado para "{searchTerm}".
-              </div>
-            ) : (
-              <div>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px', fontWeight: 700 }}>
-                  RECOMENDAÇÕES POPULARES
-                </p>
-                <div className="album-grid">
-                  {trendingAlbums.map((album) => (
-                    <AlbumCard
-                      key={album.album_id}
-                      album={album}
-                      review={getReviewForAlbum(album.album_id)}
-                      onClick={(alb) => setSelectedAlbum(alb)}
-                    />
+
+              {/* MAIS OUVIDOS NA SEMANA (5 cols) */}
+              <div className="lg:col-span-5 space-y-4">
+                <div className="flex items-baseline justify-between border-b border-rule pb-2">
+                  <h3 className="font-editorial-serif text-xl font-bold text-[#151413]">
+                    Mais Ouvidos na Semana
+                  </h3>
+                  <span className="text-[10px] font-mono-meta text-[#888075]">SELEÇÃO SOUNDLOG</span>
+                </div>
+
+                <div className="space-y-2 bg-[#EFEAE1] p-4 border border-rule font-mono-meta text-xs">
+                  {trendingAlbums.slice(1, 6).map((alb, idx) => (
+                    <div
+                      key={alb.album_id}
+                      onClick={() => setSelectedAlbum(alb)}
+                      className="py-2.5 flex items-center justify-between gap-3 border-b border-rule last:border-0 cursor-pointer hover:bg-[#FAF8F5] px-2 transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="text-[#888075] font-bold">0{idx + 2}</span>
+                        <div className="truncate">
+                          <div className="font-bold text-[#151413] truncate">{alb.album_title}</div>
+                          <div className="text-[11px] text-[#58534C] truncate">{alb.artist_name}</div>
+                        </div>
+                      </div>
+                      <span className="text-[#BA3822] font-bold shrink-0">→</span>
+                    </div>
                   ))}
                 </div>
               </div>
-            )}
+
+            </div>
+
           </div>
         )}
 
-        {/* TAB 3: DIÁRIO / DIARY */}
-        {activeTab === 'diary' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div>
-                <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff' }}>Seu Diário de Música</h2>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{reviews.length} álbuns avaliados e registrados</p>
-              </div>
-              <button
-                className="btn-primary"
-                style={{ width: 'auto', padding: '8px 12px', fontSize: '12px' }}
-                onClick={() => setActiveTab('search')}
-              >
-                <Plus size={14} /> Novo
-              </button>
+        {/* =================================================================== */}
+        {/* ABA: EXPLORAR */}
+        {/* =================================================================== */}
+        {activeTab === 'explore' && (
+          <ExploreView
+            trendingAlbums={trendingAlbums}
+            personalizedData={personalizedExplore}
+            communityUsers={communityUsers}
+            followingIds={followingIds}
+            onSelectAlbum={(alb) => setSelectedAlbum(alb)}
+            onSelectTrack={(tr) => setSelectedTrack(tr)}
+            onSelectUser={(u) => setSelectedUser(u)}
+            onToggleFollow={handleToggleFollow}
+            onRateAlbum={(alb) => handleOpenAlbumReview(alb)}
+            onRateTrack={(tr) => handleOpenTrackReview(tr)}
+            searchTerm={searchTerm}
+            searchResults={searchResults}
+            isSearching={isSearching}
+            searchFilter={searchFilter}
+            setSearchFilter={setSearchFilter}
+            onPlayTrack={(track) => setCurrentTrack(track)}
+            currentTrack={currentTrack}
+            onSearchTag={(tag) => {
+              setSearchTerm(tag);
+              handleSearch(tag);
+            }}
+          />
+        )}
+
+        {/* =================================================================== */}
+        {/* ABA: AVALIAÇÕES */}
+        {/* =================================================================== */}
+        {activeTab === 'reviews' && (
+          <div className="space-y-6">
+            <div className="border-b-2 border-[#151413] pb-3 flex justify-between items-baseline">
+              <h1 className="font-editorial-serif text-3xl font-bold text-[#151413]">Suas Avaliações & Críticas</h1>
+              <span className="text-xs font-mono-meta text-[#888075]">{reviews.length} REGISTROS</span>
             </div>
 
             {reviews.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px', background: 'var(--bg-card)', borderRadius: '12px' }}>
-                <BookOpen size={40} color="var(--text-muted)" style={{ margin: '0 auto 10px auto' }} />
-                <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Seu diário está vazio.</p>
+              <div className="p-10 border border-rule bg-[#FAF8F5] text-center space-y-3">
+                <span className="font-editorial-serif text-xl font-bold text-[#151413] block">
+                  Você ainda não avaliou nenhuma música ou álbum.
+                </span>
+                <p className="font-reading-serif text-xs text-[#58534C]">
+                  Pesquise no catálogo para atribuir sua primeira nota de 0.5 a 5.0 estrelas.
+                </p>
+                <div className="pt-2">
+                  <button onClick={() => setActiveTab('explore')} className="btn-editorial-primary text-xs py-2 px-6">
+                    Explorar catálogo
+                  </button>
+                </div>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {reviews.map((rev) => (
-                  <div
-                    key={rev.id}
-                    style={{
-                      background: 'var(--bg-card)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '12px',
-                      padding: '14px',
-                      display: 'flex',
-                      gap: '12px',
-                      position: 'relative'
-                    }}
-                  >
-                    <img
-                      src={rev.cover_url}
-                      alt=""
-                      style={{ width: '70px', height: '70px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }}
-                      onClick={() => setSelectedAlbum(rev)}
-                    />
-                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div>
-                          <h4 style={{ fontSize: '14px', fontWeight: 800, color: '#fff', cursor: 'pointer' }} onClick={() => setSelectedAlbum(rev)}>
-                            {rev.album_title}
-                          </h4>
-                          <p style={{ fontSize: '12px', color: 'var(--color-purple-light)', fontWeight: 600 }}>{rev.artist_name}</p>
+              <div className="space-y-4">
+                {reviews.map((rev) => {
+                  const isTrack = rev.item_type === 'track';
+                  return (
+                    <article key={rev.id} className="p-4 bg-[#FAF8F5] border border-rule flex flex-col sm:flex-row gap-4 items-start">
+                      <img
+                        src={rev.cover_url || 'https://via.placeholder.com/300'}
+                        alt=""
+                        className="w-16 h-16 object-cover border border-[#151413] shrink-0 cursor-pointer"
+                        onClick={() => {
+                          if (isTrack) {
+                            setSelectedTrack({
+                              track_id: rev.track_id,
+                              track_name: rev.track_name,
+                              artist_name: rev.artist_name,
+                              album_id: rev.album_id,
+                              album_title: rev.album_title,
+                              cover_url: rev.cover_url
+                            });
+                          } else {
+                            setSelectedAlbum({
+                              album_id: rev.album_id,
+                              album_title: rev.album_title,
+                              artist_name: rev.artist_name,
+                              cover_url: rev.cover_url
+                            });
+                          }
+                        }}
+                      />
+                      <div className="space-y-1 flex-1 min-w-0">
+                        <div className="flex justify-between items-baseline">
+                          <div className="flex items-center gap-2 truncate">
+                            <span className={`editorial-badge ${isTrack ? 'editorial-badge-accent' : ''}`}>
+                              {isTrack ? 'MÚSICA' : 'ÁLBUM'}
+                            </span>
+                            <h4 className="font-editorial-serif text-lg font-bold text-[#151413] truncate">
+                              {isTrack ? rev.track_name : rev.album_title}
+                              <span className="text-xs text-[#58534C] font-normal ml-1">· {rev.artist_name}</span>
+                            </h4>
+                          </div>
+                          <span className="text-sm font-mono-meta font-bold text-[#BA3822] shrink-0 pl-2">
+                            ★ {Number(rev.rating).toFixed(1)}
+                          </span>
                         </div>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button
-                            onClick={() => { setEditingReview(rev); setReviewAlbum(rev); }}
-                            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px' }}
-                            title="Editar"
-                          >
-                            <Edit3 size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteReview(rev.id)}
-                            style={{ background: 'none', border: 'none', color: '#ff4d6d', cursor: 'pointer', padding: '2px' }}
-                            title="Excluir Avaliação"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                        {rev.review_text && (
+                          <p className="font-reading-serif text-sm text-[#38332C]">"{rev.review_text}"</p>
+                        )}
+                        <div className="flex justify-between items-center text-xs font-mono-meta text-[#888075] pt-2 border-t border-rule">
+                          <span>{rev.listened_date} ({rev.media_format || 'Streaming'})</span>
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() => {
+                                if (isTrack) handleOpenTrackReview(rev);
+                                else handleOpenAlbumReview(rev);
+                              }}
+                              className="text-[#BA3822] hover:underline"
+                            >
+                              Editar
+                            </button>
+                            <button onClick={() => handleDeleteReview(rev.id)} className="text-[#9E2A1B] hover:underline">
+                              Excluir
+                            </button>
+                          </div>
                         </div>
                       </div>
-
-                      <div style={{ marginTop: '4px', marginBottom: '6px' }}>
-                        <StarRating rating={rev.rating} readonly size={14} />
-                      </div>
-
-                      {rev.review_text && (
-                        <p style={{ fontSize: '12px', color: 'var(--text-primary)', background: 'rgba(0,0,0,0.2)', padding: '8px 10px', borderRadius: '6px', borderLeft: '2px solid var(--color-purple-main)' }}>
-                          {rev.review_text}
-                        </p>
-                      )}
-
-                      <div style={{ display: 'flex', gap: '10px', fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px' }}>
-                        <span>Escutado em: {new Date(rev.listened_date || rev.created_at).toLocaleDateString('pt-BR')}</span>
-                        {rev.is_relisten && <span style={{ color: 'var(--color-purple-light)' }}>• Re-ouviu</span>}
-                        {rev.is_favorite && <span style={{ color: '#ff4d6d', fontWeight: 700 }}>♥ Favorito</span>}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
-        {/* TAB 4: LISTAS / LISTAS & COLEÇÕES PERSONALIZADAS */}
+        {/* =================================================================== */}
+        {/* ABA: LISTAS */}
+        {/* =================================================================== */}
         {activeTab === 'lists' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div>
-                <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff' }}>Coleções & Listas</h2>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Crie e gerencie suas coleções temáticas de álbuns</p>
-              </div>
-              <button
-                className="btn-primary"
-                style={{ width: 'auto', padding: '8px 14px', fontSize: '12px' }}
-                onClick={() => setShowCreateList(true)}
-              >
-                <Plus size={16} /> Criar Lista
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {lists.map((list) => (
-                <div
-                  key={list.id}
-                  style={{
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '14px',
-                    padding: '16px'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-                    <div>
-                      <h3 style={{ fontSize: '15px', fontWeight: 800, color: '#fff' }}>{list.title}</h3>
-                      <span style={{ fontSize: '11px', color: 'var(--color-purple-light)', fontWeight: 700 }}>{list.items ? list.items.length : 0} álbuns</span>
-                    </div>
-
-                    <button
-                      onClick={() => handleDeleteList(list.id, list.title)}
-                      title="Excluir Lista"
-                      style={{ background: 'none', border: 'none', color: '#ff4d6d', cursor: 'pointer', padding: '4px', opacity: 0.8 }}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                  {list.description && (
-                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>{list.description}</p>
-                  )}
-                  
-                  {/* List item covers */}
-                  {list.items && list.items.length > 0 ? (
-                    <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-                      {list.items.map((item, idx) => (
-                        <div key={idx} style={{ flexShrink: 0, textAlign: 'center', width: '60px' }}>
-                          <img
-                            src={item.cover_url}
-                            alt=""
-                            style={{ width: '60px', height: '60px', borderRadius: '6px', objectFit: 'cover' }}
-                          />
-                          <div style={{ fontSize: '9px', fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}>
-                            {item.album_title}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Lista vazia.</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          <ListsView
+            lists={lists}
+            onOpenCreateList={() => setShowCreateList(true)}
+            onDeleteList={handleDeleteList}
+          />
         )}
 
-        {/* TAB 5: PERFIL & ESTATÍSTICAS COMPLETO */}
+        {/* =================================================================== */}
+        {/* ABA: DIÁRIO */}
+        {/* =================================================================== */}
+        {activeTab === 'diary' && (
+          <DiaryView
+            reviews={reviews}
+            onSelectAlbum={(alb) => setSelectedAlbum(alb)}
+            onSelectTrack={(tr) => setSelectedTrack(tr)}
+            onNavigateExplore={() => setActiveTab('explore')}
+          />
+        )}
+
+        {/* =================================================================== */}
+        {/* ABA: PERFIL DO USUÁRIO */}
+        {/* =================================================================== */}
         {activeTab === 'profile' && (
           <ProfileView
             profile={profile}
             reviews={reviews}
+            diaryLogs={reviews}
+            lists={lists}
+            followingIds={followingIds}
+            communityUsers={communityUsers}
             onSelectAlbum={(alb) => setSelectedAlbum(alb)}
+            onSelectTrack={(tr) => setSelectedTrack(tr)}
+            onSelectUser={(u) => setSelectedUser(u)}
+            onToggleFollow={handleToggleFollow}
             onOpenEditProfile={() => setShowEditProfile(true)}
             onDeleteReview={handleDeleteReview}
-            onDeleteTrackRating={handleDeleteTrackRatingFromApp}
+            onOpenCreateList={() => setShowCreateList(true)}
+            onNavigateTab={(tab) => setActiveTab(tab)}
           />
         )}
 
-      </main>
+      </div>
 
-      {/* Floating Audio MiniPlayer */}
-      <MiniPlayer track={currentTrack} onClose={() => setCurrentTrack(null)} />
+      {/* MINI PLAYER FLUTUANTE DE ÁUDIO */}
+      {currentTrack && (
+        <MiniPlayer
+          track={currentTrack}
+          onClose={() => setCurrentTrack(null)}
+        />
+      )}
 
-      {/* Mobile Bottom Navigation Bar */}
-      <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
-
-      {/* Album Detail Modal */}
+      {/* MODAL DE DETALHES DO ÁLBUM */}
       {selectedAlbum && (
         <AlbumDetailModal
           album={selectedAlbum}
-          userReview={getReviewForAlbum(selectedAlbum.album_id)}
+          userReview={reviews.find(r => (r.item_type === 'album' || !r.item_type) && String(r.album_id) === String(selectedAlbum.album_id))}
+          allReviews={reviews}
           onClose={() => setSelectedAlbum(null)}
-          onOpenReview={(alb) => {
-            setReviewAlbum(alb);
-            setEditingReview(getReviewForAlbum(alb.album_id));
-            setSelectedAlbum(null);
-          }}
+          onOpenReview={(alb) => handleOpenAlbumReview(alb)}
+          onSelectTrack={(tr) => setSelectedTrack(tr)}
+          onOpenTrackReview={(tr) => handleOpenTrackReview(tr)}
           onDeleteReview={handleDeleteReview}
-          onPlayTrack={(track) => setCurrentTrack(track)}
+          onPlayTrack={(tr) => setCurrentTrack(tr)}
           currentPlayingTrack={currentTrack}
         />
       )}
 
-      {/* Review Modal (Bottom Sheet) */}
-      {reviewAlbum && (
+      {/* MODAL DE DETALHES DA MÚSICA / FAIXA */}
+      {selectedTrack && (
+        <TrackDetailModal
+          track={selectedTrack}
+          userReview={reviews.find(r => r.item_type === 'track' && String(r.track_id) === String(selectedTrack.track_id))}
+          trackReviews={reviews.filter(r => r.item_type === 'track' && String(r.track_id) === String(selectedTrack.track_id))}
+          onClose={() => setSelectedTrack(null)}
+          onOpenReview={(tr) => handleOpenTrackReview(tr)}
+          onOpenAlbum={(alb) => setSelectedAlbum(alb)}
+          onPlayTrack={(tr) => setCurrentTrack(tr)}
+          currentPlayingTrack={currentTrack}
+          onDeleteReview={handleDeleteReview}
+        />
+      )}
+
+      {/* MODAL DE PERFIL PÚBLICO DE OUTRO USUÁRIO (COM SEGUIR/DEIXAR DE SEGUIR) */}
+      {selectedUser && (
+        <UserProfileModal
+          user={selectedUser}
+          isFollowing={followingIds.includes(selectedUser.id)}
+          onToggleFollow={handleToggleFollow}
+          onClose={() => setSelectedUser(null)}
+          onSelectAlbum={(alb) => {
+            setSelectedUser(null);
+            setSelectedAlbum(alb);
+          }}
+          onSelectTrack={(tr) => {
+            setSelectedUser(null);
+            setSelectedTrack(tr);
+          }}
+        />
+      )}
+
+      {/* MODAL DE AVALIAÇÃO / RESENHA (MÚSICA OU ÁLBUM) */}
+      {reviewItem && (
         <ReviewModal
-          album={reviewAlbum}
-          existingReview={editingReview || getReviewForAlbum(reviewAlbum.album_id)}
-          onClose={() => { setReviewAlbum(null); setEditingReview(null); }}
+          item={reviewItem}
+          type={reviewType}
+          existingReview={reviews.find(r => {
+            if (reviewType === 'track') {
+              return r.item_type === 'track' && String(r.track_id) === String(reviewItem.track_id);
+            }
+            return (r.item_type === 'album' || !r.item_type) && String(r.album_id) === String(reviewItem.album_id);
+          })}
+          onClose={() => setReviewItem(null)}
           onSaveReview={handleSaveReview}
           onDeleteReview={handleDeleteReview}
         />
       )}
 
-      {/* Settings Modal (Supabase & Database Config) */}
-      {showSettings && (
-        <SettingsModal
-          onClose={() => setShowSettings(false)}
-          onSaveConfig={loadData}
-        />
-      )}
-
-      {/* Edit Profile Modal */}
+      {/* MODAL DE EDIÇÃO DE PERFIL */}
       {showEditProfile && (
         <EditProfileModal
           profile={profile}
@@ -910,13 +996,59 @@ export default function App() {
         />
       )}
 
-      {/* Create List Modal */}
+      {/* MODAL DE CRIAR LISTA */}
       {showCreateList && (
         <CreateListModal
           onClose={() => setShowCreateList(false)}
-          onSaveList={handleSaveList}
+          onSave={handleSaveList}
         />
       )}
-    </>
+
+      {/* MODAL DE ONBOARDING INICIAL */}
+      {showOnboarding && (
+        <OnboardingModal
+          userSession={userSession}
+          onFinish={(updated) => {
+            setProfile(updated);
+            setShowOnboarding(false);
+          }}
+        />
+      )}
+
+      {/* BOTTOM NAVIGATION (MOBILE) */}
+      <BottomNav
+        activeTab={activeTab}
+        onSelectTab={(tab) => {
+          setActiveTab(tab);
+          setSearchTerm('');
+        }}
+      />
+
+      {/* RODAPÉ EDITORIAL COMPACTO */}
+      <footer className="border-t-2 border-[#151413] mt-auto py-8 bg-[#EFEAE1] text-xs font-mono-meta text-[#58534C]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-4">
+            <img
+              src={logoImg}
+              alt="Soundlog"
+              className="h-8 w-auto object-contain mix-blend-multiply"
+            />
+            <span className="text-[10px] text-[#888075] border-l border-rule pl-3">
+              ARQUIVO CRÍTICO & MEMÓRIA MUSICAL
+            </span>
+          </div>
+
+
+          <div className="flex items-center gap-6 text-[11px]">
+            <a href="javascript:void(0)" onClick={() => alert('Termos de Uso: O Soundlog é uma plataforma cultural comunitária.')} className="hover:text-[#BA3822]">Termos</a>
+            <a href="javascript:void(0)" onClick={() => alert('Privacidade: Seus dados pertencem a você e não são comercializados.')} className="hover:text-[#BA3822]">Privacidade</a>
+            <a href="javascript:void(0)" onClick={() => alert('Contato: contato@soundlog.fm')} className="hover:text-[#BA3822]">Contato</a>
+            <a href="javascript:void(0)" onClick={() => alert('Manifesto: Pela audição de álbuns completos e valorização da crítica musical independente.')} className="hover:text-[#BA3822]">Manifesto</a>
+          </div>
+        </div>
+      </footer>
+
+    </div>
   );
 }
+

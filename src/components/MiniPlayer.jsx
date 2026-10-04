@@ -1,5 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { Play, Pause, X, Music } from 'lucide-react';
+﻿import React, { useRef, useState, useEffect } from 'react';
 
 export function MiniPlayer({ track, onClose }) {
   const audioRef = useRef(null);
@@ -26,33 +25,30 @@ export function MiniPlayer({ track, onClose }) {
   };
 
   return (
-    <div className="mini-player">
+    <div className="fixed bottom-0 inset-x-0 z-40 bg-[#FAF8F5] border-t-2 border-[#151413] shadow-2xl p-3 sm:px-8 flex items-center justify-between gap-4 font-mono-meta text-xs">
       <audio ref={audioRef} onEnded={() => setIsPlaying(false)} />
 
-      <div className="player-info">
-        <img src={track.cover_url} alt="" className="player-thumb" />
-        <div className="player-text">
-          <span className="player-title">{track.track_name}</span>
-          <span className="player-artist">{track.artist_name || track.album_title}</span>
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="editorial-badge editorial-badge-accent shrink-0">ÁUDIO 30S</span>
+        <div className="truncate">
+          <span className="font-bold text-[#151413] block truncate">{track.track_name}</span>
+          <span className="text-[11px] text-[#58534C] truncate">{track.artist_name || track.album_title}</span>
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <button className="player-btn" onClick={togglePlay}>
-          {isPlaying ? <Pause size={16} fill="#000" /> : <Play size={16} style={{ marginLeft: '2px' }} />}
+      <div className="flex items-center gap-3 shrink-0">
+        <button
+          onClick={togglePlay}
+          className="btn-editorial-primary text-xs py-1.5 px-3"
+        >
+          {isPlaying ? '❚❚ Pausar' : '▶ Ouvir'}
         </button>
 
         <button
           onClick={onClose}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            padding: '4px'
-          }}
+          className="text-[#888075] hover:text-[#151413] text-xs px-2 py-1 border border-rule bg-[#FAF8F5]"
         >
-          <X size={16} />
+          ✕ Fechar
         </button>
       </div>
     </div>
