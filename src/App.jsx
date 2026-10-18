@@ -30,7 +30,7 @@ import {
   fetchFollows,
   toggleFollowUser,
   searchUsers,
-  DEFAULT_COMMUNITY_USERS,
+  fetchCommunityProfiles,
   supabase
 } from './services/supabase';
 
@@ -50,7 +50,7 @@ export default function App() {
   const [lists, setLists] = useState([]);
   const [profile, setProfile] = useState(null);
   const [followingIds, setFollowingIds] = useState([]);
-  const [communityUsers, setCommunityUsers] = useState(DEFAULT_COMMUNITY_USERS);
+  const [communityUsers, setCommunityUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -117,16 +117,18 @@ export default function App() {
 
   const loadInitialData = async () => {
     setLoading(true);
-    const [trend, revs, prof, follows] = await Promise.all([
+    const [trend, revs, prof, follows, commUsers] = await Promise.all([
       getTrendingAlbums(),
       fetchReviews(),
       fetchProfile(userSession),
-      fetchFollows(userSession.id)
+      fetchFollows(userSession.id),
+      fetchCommunityProfiles(userSession.id)
     ]);
 
     setTrendingAlbums(trend || []);
     setReviews(revs || []);
     setFollowingIds(follows || []);
+    setCommunityUsers(commUsers || []);
     setProfile(prof || {
       id: userSession.id,
       full_name: userSession.full_name || userSession.username,

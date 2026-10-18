@@ -251,158 +251,44 @@ export const updateProfile = async (profileData) => {
 // 4. SISTEMA DE SEGUIDORES E DESCOBERTA DE USUÁRIOS
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_COMMUNITY_USERS = [
-  {
-    id: 'user-rodrigo-clube',
-    username: 'clube_da_esquina',
-    full_name: 'Rodrigo Alencar',
-    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-    bio: 'Colecionador de prensagens originais da MPB e Clube da Esquina. Crítico independente.',
-    location: 'Belo Horizonte, MG',
-    favorite_artist: 'Milton Nascimento, Lô Borges, Beto Guedes',
-    favorite_genres: ['MPB', 'Psicodelia', 'Jazz'],
-    reviews_count: 142,
-    followers_count: 318,
-    recent_reviews: [
-      {
-        item_type: 'album',
-        album_title: 'Clube da Esquina',
-        artist_name: 'Milton Nascimento & Lô Borges',
-        rating: 5.0,
-        review_text: 'O monumento sonoro mais rico e poético já concebido na música universal.'
-      },
-      {
-        item_type: 'track',
-        track_name: 'Trem Azul',
-        artist_name: 'Lô Borges',
-        album_title: 'Clube da Esquina',
-        rating: 5.0,
-        review_text: 'Arranjo de cordas sublime e guitarra inconfundível de Toninho Horta.'
+export const DEFAULT_COMMUNITY_USERS = [];
+
+/**
+ * Busca perfis reais de usuários cadastrados no Supabase para sugestão na comunidade
+ */
+export const fetchCommunityProfiles = async (currentUserId = null) => {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .limit(20);
+
+      if (!error && data) {
+        const followingList = getLocalFollows(currentUserId);
+        return data
+          .filter((u) => u.id !== currentUserId)
+          .map((u) => ({
+            id: u.id,
+            username: u.username || 'usuario',
+            full_name: u.full_name || u.display_name || u.username,
+            avatar_url: u.avatar_url || '',
+            bio: u.bio || '',
+            location: u.location || '',
+            favorite_artist: u.favorite_artist || '',
+            favorite_genres: u.favorite_genres || [],
+            reviews_count: u.reviews_count || 0,
+            followers_count: u.followers_count || 0,
+            recent_reviews: [],
+            is_following: followingList.includes(u.id)
+          }));
       }
-    ]
-  },
-  {
-    id: 'user-mariana-discoteca',
-    username: 'discoteca_basica',
-    full_name: 'Mariana Souza',
-    avatar_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=300&q=80',
-    bio: 'Jornalista cultural, pesquisadora de Samba-Jazz, Bossa e discos fundamentais do século XX.',
-    location: 'Rio de Janeiro, RJ',
-    favorite_artist: 'Arthur Verocai, Elis Regina, Quarteto em Cy',
-    favorite_genres: ['Samba-Jazz', 'Bossa Nova', 'MPB'],
-    reviews_count: 210,
-    followers_count: 540,
-    recent_reviews: [
-      {
-        item_type: 'album',
-        album_title: 'Arthur Verocai',
-        artist_name: 'Arthur Verocai',
-        rating: 5.0,
-        review_text: 'Os arranjos orquestrais de Verocai encontram o groove perfeito neste clássico imortal de 1972.'
-      },
-      {
-        item_type: 'track',
-        track_name: 'Águas de Março',
-        artist_name: 'Elis Regina & Tom Jobim',
-        album_title: 'Elis & Tom',
-        rating: 5.0,
-        review_text: 'A maior química vocal da história da canção brasileira.'
-      }
-    ]
-  },
-  {
-    id: 'user-joao-groove',
-    username: 'joao_groove',
-    full_name: 'João Vitor Ribeiro',
-    avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
-    bio: 'Fissurado em Soul brasileiro dos anos 70, Tim Maia, funk de raiz e psicodelia nordestina.',
-    location: 'Recife, PE',
-    favorite_artist: 'Tim Maia, Alceu Valença, Jorge Ben Jor',
-    favorite_genres: ['Soul', 'Funk 70s', 'Tropicália'],
-    reviews_count: 98,
-    followers_count: 184,
-    recent_reviews: [
-      {
-        item_type: 'album',
-        album_title: 'A Tábua de Esmeralda',
-        artist_name: 'Jorge Ben Jor',
-        rating: 5.0,
-        review_text: 'Alquimia pura gravada em fita analógica. A batida do violão transcende qualquer época.'
-      }
-    ]
-  },
-  {
-    id: 'user-beatriz-som',
-    username: 'beatriz_som',
-    full_name: 'Beatriz Lima',
-    avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
-    bio: 'Resenhas de lançamentos independentes, indie nacional e discos esquecidos da Tropicália.',
-    location: 'São Paulo, SP',
-    favorite_artist: 'Tim Bernardes, Gal Costa, O Terno',
-    favorite_genres: ['Indie', 'MPB', 'Folk'],
-    reviews_count: 175,
-    followers_count: 420,
-    recent_reviews: [
-      {
-        item_type: 'album',
-        album_title: 'Recomeçar',
-        artist_name: 'Tim Bernardes',
-        rating: 4.5,
-        review_text: 'Voz, violão, orquestrações intimistas e composições de doer a alma.'
-      },
-      {
-        item_type: 'track',
-        track_name: 'Baby',
-        artist_name: 'Gal Costa',
-        album_title: 'Gal Costa (1969)',
-        rating: 5.0,
-        review_text: 'A delicadeza e a vanguarda tropicalista em seu auge absoluto.'
-      }
-    ]
-  },
-  {
-    id: 'user-carlos-caetano',
-    username: 'caetano_archive',
-    full_name: 'Carlos Eduardo',
-    avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80',
-    bio: 'Documentando tudo da era de ouro da Tropicália e rock psicodélico latino-americano.',
-    location: 'Salvador, BA',
-    favorite_artist: 'Caetano Veloso, Os Mutantes, Gilberto Gil',
-    favorite_genres: ['Tropicália', 'Psicodelia', 'Rock Brasileiro'],
-    reviews_count: 133,
-    followers_count: 290,
-    recent_reviews: [
-      {
-        item_type: 'album',
-        album_title: 'Transa',
-        artist_name: 'Caetano Veloso',
-        rating: 5.0,
-        review_text: 'O exílio em Londres transformado em poesia crua, groove e saudade.'
-      }
-    ]
-  },
-  {
-    id: 'user-lucas-vinil',
-    username: 'vinil_critico',
-    full_name: 'Lucas Mendes',
-    avatar_url: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=300&q=80',
-    bio: 'Ouvinte focado em formatos físicos, fitas cassete e pós-punk nacional e internacional.',
-    location: 'Curitiba, PR',
-    favorite_artist: 'Portishead, Joy Division, Legião Urbana',
-    favorite_genres: ['Pós-Punk', 'Trip-Hop', 'Rock Alternativo'],
-    reviews_count: 164,
-    followers_count: 360,
-    recent_reviews: [
-      {
-        item_type: 'album',
-        album_title: 'Dummy',
-        artist_name: 'Portishead',
-        rating: 5.0,
-        review_text: 'Clima noir, scratches hipnóticos e a voz inigualável de Beth Gibbons.'
-      }
-    ]
+    } catch (err) {
+      console.warn('Erro ao carregar perfis da comunidade no Supabase:', err);
+    }
   }
-];
+  return [];
+};
 
 export const getLocalFollows = (userId = 'default') => {
   const key = `soundlog_follows_${userId}`;
@@ -511,13 +397,12 @@ export const searchUsers = async (term, currentUserId = null) => {
     }
   }
 
-  // Combina perfis do Supabase com os usuários da comunidade editorial
-  const allUsersMap = new Map();
-
-  // Adiciona usuários do Supabase
-  supabaseUsers.forEach((u) => {
-    if (u.id !== currentUserId) {
-      allUsersMap.set(u.id, {
+  // Retorna única e exclusivamente usuários reais cadastrados no Supabase
+  const results = supabaseUsers
+    .filter((u) => u.id !== currentUserId)
+    .map((u) => {
+      const followingList = getLocalFollows(currentUserId);
+      return {
         id: u.id,
         username: u.username || 'usuario',
         full_name: u.full_name || u.display_name || u.username,
@@ -528,31 +413,10 @@ export const searchUsers = async (term, currentUserId = null) => {
         favorite_genres: u.favorite_genres || [],
         reviews_count: u.reviews_count || 0,
         followers_count: u.followers_count || 0,
-        recent_reviews: []
-      });
-    }
-  });
-
-  // Adiciona e filtra usuários da comunidade editorial
-  DEFAULT_COMMUNITY_USERS.forEach((u) => {
-    if (u.id !== currentUserId && !allUsersMap.has(u.id)) {
-      const matchUsername = u.username.toLowerCase().includes(normalized);
-      const matchName = u.full_name.toLowerCase().includes(normalized);
-      const matchBio = u.bio.toLowerCase().includes(normalized);
-      const matchArtist = u.favorite_artist?.toLowerCase().includes(normalized);
-      const matchGenres = u.favorite_genres?.some((g) => g.toLowerCase().includes(normalized));
-
-      if (matchUsername || matchName || matchBio || matchArtist || matchGenres) {
-        allUsersMap.set(u.id, u);
-      }
-    }
-  });
-
-  const followingList = getLocalFollows(currentUserId);
-  const results = Array.from(allUsersMap.values()).map((user) => ({
-    ...user,
-    is_following: followingList.includes(user.id)
-  }));
+        recent_reviews: [],
+        is_following: followingList.includes(u.id)
+      };
+    });
 
   return results;
 };

@@ -51,6 +51,17 @@ export function AuthScreen({ onLoginSuccess }) {
           throw new Error('As senhas informadas não coincidem.');
         }
 
+        // Validação estrita de formato de e-mail
+        const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+        if (!emailValid) {
+          throw new Error('Por favor, informe um endereço de e-mail válido.');
+        }
+
+        // Validação de nome de usuário
+        if (!/^[a-z0-9_]{3,30}$/i.test(cleanUsername)) {
+          throw new Error('O nome de usuário deve ter entre 3 e 30 caracteres (letras, números e underline).');
+        }
+
         if (isSupabaseConfigured() && supabase) {
           const { data, error } = await supabase.auth.signUp({
             email,
@@ -79,23 +90,26 @@ export function AuthScreen({ onLoginSuccess }) {
           await updateProfile(userSession);
           onLoginSuccess(userSession);
         } else {
-          // Modo Local / Demo
-          const userSession = {
-            id: 'demo-' + Date.now(),
-            email,
-            full_name: displayName,
-            username: cleanUsername,
-            avatar_url: ''
-          };
-          localStorage.setItem('soundlog_session', JSON.stringify(userSession));
-          saveLocalProfile(userSession);
-          onLoginSuccess(userSession);
+          throw new Error('O backend de autenticação (Supabase) não está configurado. Adicione as chaves no arquivo .env.');
         }
       } 
       // 2. TELA DE LOGIN
       else if (view === 'login') {
+        // Basic validation
         if (!email || !password) {
-          throw new Error('Por favor, informe seu e-mail ou usuário e sua senha.');
+          throw new Error('Por favor, informe seu e‑mail ou usuário e sua senha.');
+        }
+
+        // Simple email or username format validation
+        const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+        const usernameValid = /^[a-z0-9_]{3,}$/.test(email);
+        if (!emailValid && !usernameValid) {
+          throw new Error('Formato de e‑mail ou nome de usuário inválido.');
+        }
+
+        // Minimum password length
+        if (password.length < 8) {
+          throw new Error('A senha deve conter no mínimo 8 caracteres.');
         }
 
         if (isSupabaseConfigured() && supabase) {
@@ -106,7 +120,7 @@ export function AuthScreen({ onLoginSuccess }) {
 
           if (error) {
             if (error.message.includes('Invalid login credentials')) {
-              throw new Error('E-mail, usuário ou senha incorretos.');
+              throw new Error('E‑mail, usuário ou senha incorretos.');
             }
             throw error;
           }
@@ -129,17 +143,8 @@ export function AuthScreen({ onLoginSuccess }) {
           saveLocalProfile(userSession);
           onLoginSuccess(userSession);
         } else {
-          // Demo fallback
-          const userSession = {
-            id: 'usr-demo-local',
-            email,
-            full_name: email.split('@')[0] || 'Ouvinte Soundlog',
-            username: email.split('@')[0] || 'ouvinte',
-            avatar_url: ''
-          };
-          localStorage.setItem('soundlog_session', JSON.stringify(userSession));
-          saveLocalProfile(userSession);
-          onLoginSuccess(userSession);
+          // Supabase not configured; cannot login
+          throw new Error('Autenticação não está configurada. Por favor, configure o Supabase ou use o modo demo.');
         }
       }
       // 3. RECUPERAÇÃO DE SENHA

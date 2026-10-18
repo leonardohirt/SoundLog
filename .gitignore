@@ -1,7 +1,10 @@
-# Environment variables (keep secrets out of git)
+# Environment variables and secrets (strictly keep out of git)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
 
 # Logs
 logs
