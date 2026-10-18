@@ -1,7 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('soundlog_sb_url') || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('soundlog_sb_key') || '';
+const DEFAULT_SUPABASE_URL = 'https://wqgkouxgstnokzbyjbfd.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_ML629Jm3cBZKIloXPi88oA_X-eb5bdn';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('soundlog_sb_url') || DEFAULT_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('soundlog_sb_key') || DEFAULT_SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = () => {
   return (

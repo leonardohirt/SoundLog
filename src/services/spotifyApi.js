@@ -1,8 +1,11 @@
 // Soundlog Spotify API Service
 // Gerencia autenticação Client Credentials e endpoints de busca e detalhes de álbuns
 
-const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || '';
-const CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET || '';
+const DEFAULT_SPOTIFY_CLIENT_ID = '04d21aee3deb4796b0fe1272be69c0e7';
+const DEFAULT_SPOTIFY_CLIENT_SECRET = '8ad3015a5e4147bf8b5eaf4ce990168f';
+
+const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || DEFAULT_SPOTIFY_CLIENT_ID;
+const CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET || DEFAULT_SPOTIFY_CLIENT_SECRET;
 
 let cachedToken = null;
 let tokenExpiresAt = 0;
@@ -12,8 +15,6 @@ let tokenExpiresAt = 0;
  */
 export const getSpotifyToken = async () => {
   if (!CLIENT_ID || !CLIENT_SECRET) {
-    // Se as credenciais do Spotify não foram configuradas nas variáveis de ambiente,
-    // o app fará fallback automático e seguro para a API do iTunes
     return null;
   }
 
