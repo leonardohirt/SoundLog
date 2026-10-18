@@ -7,6 +7,7 @@ export function ProfileView({
   diaryLogs = [],
   lists = [],
   followingIds = [],
+  followersCount = 0,
   communityUsers = [],
   onSelectAlbum,
   onSelectTrack,
@@ -119,7 +120,7 @@ export function ProfileView({
           </div>
           <div className="p-2.5 bg-[#FAF8F5] border border-rule">
             <span className="text-[10px] text-[#888075] block uppercase">Seguidores</span>
-            <span className="text-lg font-bold text-[#151413]">0</span>
+            <span className="text-lg font-bold text-[#151413]">{followersCount}</span>
           </div>
           <div
             onClick={() => setActiveSubTab('following')}

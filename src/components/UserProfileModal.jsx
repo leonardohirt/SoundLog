@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import logoImg from '../assets/logo.jpg';
+import { fetchUserFollowersCount, fetchUserReviews } from '../services/supabase';
 
 export function UserProfileModal({
   user,
@@ -11,6 +12,31 @@ export function UserProfileModal({
 }) {
   const [following, setFollowing] = useState(isFollowing);
   const [followersCount, setFollowersCount] = useState(user?.followers_count || 0);
+  const [userReviews, setUserReviews] = useState(user?.recent_reviews || []);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setFollowing(isFollowing);
+  }, [isFollowing]);
+
+  useEffect(() => {
+    if (user?.id) {
+      setLoading(true);
+      Promise.all([
+        fetchUserFollowersCount(user.id),
+        fetchUserReviews(user.id)
+      ]).then(([count, revs]) => {
+        setFollowersCount(count);
+        if (revs && revs.length > 0) {
+          setUserReviews(revs);
+        }
+        setLoading(false);
+      }).catch((err) => {
+        console.warn('Erro ao carregar detalhes do perfil:', err);
+        setLoading(false);
+      });
+    }
+  }, [user?.id]);
 
   if (!user) return null;
 
@@ -26,7 +52,7 @@ export function UserProfileModal({
     : [];
 
   const favoriteGenresList = user.favorite_genres || [];
-  const recentReviews = user.recent_reviews || [];
+  const recentReviews = userReviews;
 
   return (
     <div className="fixed inset-0 z-50 bg-[#121110]/85 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">

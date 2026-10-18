@@ -403,8 +403,91 @@ export const toggleFollowUser = async (currentUserId, targetUserId) => {
   };
 };
 
+// ---------------------------------------------------------------------------
+// CONTAGEM DE SEGUIDORES E AVALIAÇÕES DE USUÁRIOS REAIS
+// ---------------------------------------------------------------------------
+export const fetchUserFollowersCount = async (userId) => {
+  if (!userId) return 0;
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { count, error } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('following_id', userId);
+      if (!error && typeof count === 'number') {
+        return count;
+      }
+    } catch (err) {
+      console.warn('Erro ao contar seguidores no Supabase:', err);
+    }
+  }
+  return 0;
+};
+
+export const fetchUserReviews = async (userId) => {
+  if (!userId) return [];
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('reviews')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      if (!error && data) {
+        return data;
+      }
+    } catch (err) {
+      console.warn('Erro ao buscar avaliações do usuário no Supabase:', err);
+    }
+  }
+  return [];
+};
+
 /**
- * Busca ouvintes/usuários do Soundlog pelo termo pesquisado
+ * Sincroniza avaliações salvas localmente para o Supabase caso tenham sido feitas offline
+ */
+export const syncLocalReviewsToSupabase = async (userSession) => {
+  if (!userSession?.id || !isSupabaseConfigured() || !supabase) return [];
+  try {
+    const local = getLocalReviews();
+    if (!local || local.length === 0) return [];
+
+    const { data: cloudReviews } = await supabase
+      .from('reviews')
+      .select('id')
+      .eq('user_id', userSession.id);
+
+    const cloudIds = new Set((cloudReviews || []).map((r) => r.id));
+    const toUpload = local.filter((r) => !cloudIds.has(r.id));
+
+    if (toUpload.length > 0) {
+      for (const rev of toUpload) {
+        await createOrUpdateReview({
+          ...rev,
+          user_id: userSession.id,
+          user_username: userSession.username,
+          user_name: userSession.full_name || userSession.username
+        }, userSession);
+      }
+    }
+
+    const { data: allFresh } = await supabase
+      .from('reviews')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (allFresh && allFresh.length > 0) {
+      saveLocalReviews(allFresh);
+      return allFresh;
+    }
+  } catch (err) {
+    console.warn('Erro na sincronização de reviews locais para Supabase:', err);
+  }
+  return getLocalReviews();
+};
+
+/**
+ * Busca ouvintes/usuários do Soundlog pelo termo pesquisado com métricas reais
  */
 export const searchUsers = async (term, currentUserId = null) => {
   if (!term || !term.trim()) return [];
@@ -427,26 +510,34 @@ export const searchUsers = async (term, currentUserId = null) => {
     }
   }
 
-  // Retorna única e exclusivamente usuários reais cadastrados no Supabase
-  const results = supabaseUsers
-    .filter((u) => u.id !== currentUserId)
-    .map((u) => {
-      const followingList = getLocalFollows(currentUserId);
-      return {
-        id: u.id,
-        username: u.username || 'usuario',
-        full_name: u.full_name || u.display_name || u.username,
-        avatar_url: u.avatar_url || '',
-        bio: u.bio || '',
-        location: u.location || '',
-        favorite_artist: u.favorite_artist || '',
-        favorite_genres: u.favorite_genres || [],
-        reviews_count: u.reviews_count || 0,
-        followers_count: u.followers_count || 0,
-        recent_reviews: [],
-        is_following: followingList.includes(u.id)
-      };
-    });
+  const followingList = getLocalFollows(currentUserId);
+
+  // Enriquece os resultados com contagem de seguidores e avaliações reais
+  const results = await Promise.all(
+    supabaseUsers
+      .filter((u) => u.id !== currentUserId)
+      .map(async (u) => {
+        const [followersCount, reviews] = await Promise.all([
+          fetchUserFollowersCount(u.id),
+          fetchUserReviews(u.id)
+        ]);
+
+        return {
+          id: u.id,
+          username: u.username || 'usuario',
+          full_name: u.display_name || u.full_name || u.username,
+          avatar_url: u.avatar_url || '',
+          bio: u.bio || '',
+          location: u.location || '',
+          favorite_artist: u.favorite_artist || '',
+          favorite_genres: u.favorite_genres || [],
+          reviews_count: reviews.length,
+          followers_count: followersCount,
+          recent_reviews: reviews,
+          is_following: followingList.includes(u.id)
+        };
+      })
+  );
 
   return results;
 };

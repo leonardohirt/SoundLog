@@ -31,6 +31,8 @@ import {
   toggleFollowUser,
   searchUsers,
   fetchCommunityProfiles,
+  fetchUserFollowersCount,
+  syncLocalReviewsToSupabase,
   supabase
 } from './services/supabase';
 
@@ -50,6 +52,7 @@ export default function App() {
   const [lists, setLists] = useState([]);
   const [profile, setProfile] = useState(null);
   const [followingIds, setFollowingIds] = useState([]);
+  const [followersCount, setFollowersCount] = useState(0);
   const [communityUsers, setCommunityUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -117,17 +120,19 @@ export default function App() {
 
   const loadInitialData = async () => {
     setLoading(true);
-    const [trend, revs, prof, follows, commUsers] = await Promise.all([
+    const [trend, revs, prof, follows, commUsers, myFollowersCount] = await Promise.all([
       getTrendingAlbums(),
-      fetchReviews(),
+      syncLocalReviewsToSupabase(userSession),
       fetchProfile(userSession),
       fetchFollows(userSession.id),
-      fetchCommunityProfiles(userSession.id)
+      fetchCommunityProfiles(userSession.id),
+      fetchUserFollowersCount(userSession.id)
     ]);
 
     setTrendingAlbums(trend || []);
     setReviews(revs || []);
     setFollowingIds(follows || []);
+    setFollowersCount(myFollowersCount || 0);
     setCommunityUsers(commUsers || []);
     setProfile(prof || {
       id: userSession.id,
@@ -901,6 +906,7 @@ export default function App() {
             diaryLogs={reviews}
             lists={lists}
             followingIds={followingIds}
+            followersCount={followersCount}
             communityUsers={communityUsers}
             onSelectAlbum={(alb) => setSelectedAlbum(alb)}
             onSelectTrack={(tr) => setSelectedTrack(tr)}
