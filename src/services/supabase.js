@@ -147,13 +147,28 @@ export const fetchReviews = async () => {
   return getLocalReviews();
 };
 
-export const createOrUpdateReview = async (evalData) => {
+export const createOrUpdateReview = async (evalData, userSession = null) => {
   const itemType = evalData.item_type || (evalData.track_id ? 'track' : 'album');
+
+  // Recupera a sessão ativa para vincular a avaliação ao autor real
+  let activeSession = userSession;
+  if (!activeSession) {
+    try {
+      const stored = localStorage.getItem('soundlog_session') || sessionStorage.getItem('soundlog_session');
+      if (stored) activeSession = JSON.parse(stored);
+    } catch {
+      // ignore
+    }
+  }
 
   const evalToSave = {
     ...evalData,
     item_type: itemType,
     id: evalData.id || generateUUID(),
+    user_id: evalData.user_id || activeSession?.id || null,
+    user_username: evalData.user_username || activeSession?.username || 'ouvinte',
+    user_name: evalData.user_name || activeSession?.full_name || activeSession?.username || 'Ouvinte',
+    user_avatar: evalData.user_avatar || activeSession?.avatar_url || '',
     created_at: evalData.created_at || new Date().toISOString()
   };
 
@@ -165,9 +180,11 @@ export const createOrUpdateReview = async (evalData) => {
         .select();
 
       if (error) throw error;
-      return data[0];
+      if (data && data.length > 0) {
+        return data[0];
+      }
     } catch (err) {
-      console.warn('Erro ao salvar no Supabase, salvando localmente:', err);
+      console.warn('Erro ao salvar no Supabase, mantendo local:', err);
     }
   }
 
@@ -232,9 +249,19 @@ export const fetchProfile = async (userSession) => {
 export const updateProfile = async (profileData) => {
   if (isSupabaseConfigured() && supabase) {
     try {
+      const payload = {
+        id: profileData.id,
+        username: profileData.username,
+        display_name: profileData.full_name || profileData.display_name || profileData.username,
+        avatar_url: profileData.avatar_url || '',
+        bio: profileData.bio || '',
+        favorite_artist: profileData.favorite_artist || '',
+        location: profileData.location || ''
+      };
+
       const { data, error } = await supabase
         .from('profiles')
-        .upsert(profileData)
+        .upsert(payload)
         .select();
 
       if (error) throw error;
@@ -389,8 +416,8 @@ export const searchUsers = async (term, currentUserId = null) => {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .or(`username.ilike.%${normalized}%,full_name.ilike.%${normalized}%,bio.ilike.%${normalized}%,favorite_artist.ilike.%${normalized}%`)
-        .limit(10);
+        .or(`username.ilike.%${normalized}%,display_name.ilike.%${normalized}%`)
+        .limit(15);
 
       if (!error && data) {
         supabaseUsers = data;

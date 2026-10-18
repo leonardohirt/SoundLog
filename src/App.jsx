@@ -225,7 +225,7 @@ export default function App() {
 
   // Salvar avaliação / resenha
   const handleSaveReview = async (reviewData) => {
-    const saved = await createOrUpdateReview(reviewData);
+    const saved = await createOrUpdateReview(reviewData, userSession);
     const updated = await fetchReviews();
     setReviews(updated);
     setReviewItem(null);
