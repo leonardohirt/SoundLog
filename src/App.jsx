@@ -147,6 +147,15 @@ export default function App() {
     setLoading(false);
   };
 
+  // Filtra estritamente as avaliações pessoais do usuário logado
+  const myReviews = reviews.filter((r) => {
+    if (!userSession?.id) return true;
+    return (
+      r.user_id === userSession.id ||
+      (r.user_username && userSession.username && r.user_username.toLowerCase() === userSession.username.toLowerCase())
+    );
+  });
+
   // Recalcular recomendações personalizadas sempre que houver novas avaliações ou alterações no perfil
   useEffect(() => {
     if (userSession) {
@@ -154,8 +163,8 @@ export default function App() {
       const runPersonalization = async () => {
         try {
           const [homeData, exploreData] = await Promise.all([
-            getPersonalizedHomeData(reviews, profile),
-            getPersonalizedExploreData(reviews, profile)
+            getPersonalizedHomeData(myReviews, profile),
+            getPersonalizedExploreData(myReviews, profile)
           ]);
           if (isMounted) {
             setPersonalizedHome(homeData);
@@ -699,6 +708,11 @@ export default function App() {
                             )}
 
                             <div className="text-[10px] font-mono-meta text-[#888075]">
+                              {rev.user_username && (
+                                <span className="font-bold text-[#BA3822] mr-1">
+                                  @{rev.user_username} ·
+                                </span>
+                              )}
                               {isTrack
                                 ? `Avaliação de música ${rev.album_title ? `(Álbum: ${rev.album_title})` : ''} · Ouvido em ${rev.listened_date || 'Hoje'}`
                                 : `Avaliação do álbum · Ouvido em ${rev.listened_date || 'Hoje'} (${rev.media_format || 'Vinil'})`
@@ -782,10 +796,10 @@ export default function App() {
           <div className="space-y-6">
             <div className="border-b-2 border-[#151413] pb-3 flex justify-between items-baseline">
               <h1 className="font-editorial-serif text-3xl font-bold text-[#151413]">Suas Avaliações & Críticas</h1>
-              <span className="text-xs font-mono-meta text-[#888075]">{reviews.length} REGISTROS</span>
+              <span className="text-xs font-mono-meta text-[#888075]">{myReviews.length} REGISTROS</span>
             </div>
 
-            {reviews.length === 0 ? (
+            {myReviews.length === 0 ? (
               <div className="p-10 border border-rule bg-[#FAF8F5] text-center space-y-3">
                 <span className="font-editorial-serif text-xl font-bold text-[#151413] block">
                   Você ainda não avaliou nenhuma música ou álbum.
@@ -801,7 +815,7 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-4">
-                {reviews.map((rev) => {
+                {myReviews.map((rev) => {
                   const isTrack = rev.item_type === 'track';
                   return (
                     <article key={rev.id} className="p-4 bg-[#FAF8F5] border border-rule flex flex-col sm:flex-row gap-4 items-start">
@@ -889,7 +903,7 @@ export default function App() {
         {/* =================================================================== */}
         {activeTab === 'diary' && (
           <DiaryView
-            reviews={reviews}
+            reviews={myReviews}
             onSelectAlbum={(alb) => setSelectedAlbum(alb)}
             onSelectTrack={(tr) => setSelectedTrack(tr)}
             onNavigateExplore={() => setActiveTab('explore')}
@@ -902,8 +916,8 @@ export default function App() {
         {activeTab === 'profile' && (
           <ProfileView
             profile={profile}
-            reviews={reviews}
-            diaryLogs={reviews}
+            reviews={myReviews}
+            diaryLogs={myReviews}
             lists={lists}
             followingIds={followingIds}
             followersCount={followersCount}

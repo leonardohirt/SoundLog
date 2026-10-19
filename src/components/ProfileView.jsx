@@ -20,7 +20,15 @@ export function ProfileView({
 }) {
   const [activeSubTab, setActiveSubTab] = useState('overview'); // 'overview' | 'tracks' | 'albums' | 'reviews' | 'diary' | 'lists' | 'following'
 
-  const userReviews = reviews || [];
+  const userReviews = (reviews || []).filter((r) => {
+    if (profile?.id) {
+      return (
+        r.user_id === profile.id ||
+        (r.user_username && profile.username && r.user_username.toLowerCase() === profile.username.toLowerCase())
+      );
+    }
+    return true;
+  });
   const userLists = lists || [];
 
   // Separate Tracks and Albums strictly
