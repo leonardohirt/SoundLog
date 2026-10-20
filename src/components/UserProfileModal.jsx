@@ -40,11 +40,15 @@ export function UserProfileModal({
 
   if (!user) return null;
 
-  const handleFollowClick = () => {
+  const handleFollowClick = async () => {
     const nextState = !following;
     setFollowing(nextState);
     setFollowersCount((prev) => (nextState ? prev + 1 : Math.max(0, prev - 1)));
-    onToggleFollow(user.id);
+    const result = await onToggleFollow(user.id);
+    if (result && result.isFollowing !== nextState) {
+      setFollowing(result.isFollowing);
+      setFollowersCount((prev) => (nextState ? Math.max(0, prev - 1) : prev + 1));
+    }
   };
 
   const favoriteArtistsList = user.favorite_artist

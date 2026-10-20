@@ -5,6 +5,25 @@ const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_ML629Jm3cBZKIloXPi88oA_X-eb5bd
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('soundlog_sb_url') || DEFAULT_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('soundlog_sb_key') || DEFAULT_SUPABASE_ANON_KEY;
+const SESSION_PREFERENCE_KEY = 'soundlog_remember_session';
+
+const authStorage = {
+  getItem: async (key) => {
+    const storage = localStorage.getItem(SESSION_PREFERENCE_KEY) === 'false' ? sessionStorage : localStorage;
+    return storage.getItem(key);
+  },
+  setItem: async (key, value) => {
+    const rememberSession = localStorage.getItem(SESSION_PREFERENCE_KEY) !== 'false';
+    const storage = rememberSession ? localStorage : sessionStorage;
+    const otherStorage = rememberSession ? sessionStorage : localStorage;
+    otherStorage.removeItem(key);
+    storage.setItem(key, value);
+  },
+  removeItem: async (key) => {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  }
+};
 
 export const isSupabaseConfigured = () => {
   return (
@@ -16,8 +35,15 @@ export const isSupabaseConfigured = () => {
 };
 
 export const supabase = isSupabaseConfigured()
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, { auth: { storage: authStorage } })
   : null;
+
+const getAuthenticatedUser = async () => {
+  if (!supabase) return null;
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  return data.session?.user || null;
+};
 
 export const generateUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -66,6 +92,19 @@ export const saveLocalProfile = (profileData) => {
   const updated = { ...current, ...profileData };
   localStorage.setItem('soundlog_profile', JSON.stringify(updated));
   return updated;
+};
+
+export const isUsernameAvailable = async (username) => {
+  if (!supabase) throw new Error('Supabase não está configurado.');
+  const normalizedUsername = username.trim().toLowerCase();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('username', normalizedUsername)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data === null;
 };
 
 // ---------------------------------------------------------------------------
@@ -131,14 +170,13 @@ export const fetchReviews = async () => {
       const { data, error } = await supabase
         .from('reviews')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (error) throw error;
-      if (data && data.length > 0) {
-        saveLocalReviews(data);
-        return data;
-      }
-      return getLocalReviews();
+      const reviews = data || [];
+      saveLocalReviews(reviews);
+      return reviews;
     } catch (err) {
       console.warn('Erro ao buscar reviews no Supabase, usando local:', err);
       return getLocalReviews();
@@ -149,43 +187,42 @@ export const fetchReviews = async () => {
 
 export const createOrUpdateReview = async (evalData, userSession = null) => {
   const itemType = evalData.item_type || (evalData.track_id ? 'track' : 'album');
-
-  // Recupera a sessão ativa para vincular a avaliação ao autor real
-  let activeSession = userSession;
-  if (!activeSession) {
-    try {
-      const stored = localStorage.getItem('soundlog_session') || sessionStorage.getItem('soundlog_session');
-      if (stored) activeSession = JSON.parse(stored);
-    } catch {
-      // ignore
-    }
+  const authenticatedUser = await getAuthenticatedUser().catch(() => null);
+  if (supabase && userSession?.id && !authenticatedUser) {
+    throw new Error('Sua sessão expirou. Entre novamente para salvar a avaliação.');
+  }
+  if (authenticatedUser && userSession?.id && authenticatedUser.id !== userSession.id) {
+    throw new Error('A sessão ativa não corresponde ao usuário atual. Entre novamente.');
   }
 
   const evalToSave = {
     ...evalData,
     item_type: itemType,
     id: evalData.id || generateUUID(),
-    user_id: evalData.user_id || activeSession?.id || null,
-    user_username: evalData.user_username || activeSession?.username || 'ouvinte',
-    user_name: evalData.user_name || activeSession?.full_name || activeSession?.username || 'Ouvinte',
-    user_avatar: evalData.user_avatar || activeSession?.avatar_url || '',
+    user_id: authenticatedUser?.id || userSession?.id || null,
+    user_username: userSession?.username || evalData.user_username || 'ouvinte',
+    user_name: userSession?.full_name || userSession?.username || evalData.user_name || 'Ouvinte',
+    user_avatar: userSession?.avatar_url || evalData.user_avatar || '',
     created_at: evalData.created_at || new Date().toISOString()
   };
 
-  if (isSupabaseConfigured() && supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('reviews')
-        .upsert(evalToSave)
-        .select();
+  if (authenticatedUser && isSupabaseConfigured() && supabase) {
+    const cloudReview = Object.fromEntries(
+      Object.entries(evalToSave).filter(([key]) =>
+        !['user_username', 'user_name', 'user_avatar'].includes(key)
+      )
+    );
+    const { data, error } = await supabase
+      .from('reviews')
+      .upsert(cloudReview)
+      .select()
+      .single();
 
-      if (error) throw error;
-      if (data && data.length > 0) {
-        return data[0];
-      }
-    } catch (err) {
-      console.warn('Erro ao salvar no Supabase, mantendo local:', err);
-    }
+    if (error) throw error;
+    if (!data) throw new Error('O Supabase não confirmou a avaliação.');
+    const localReviews = getLocalReviews().filter((review) => review.id !== data.id);
+    saveLocalReviews([data, ...localReviews]);
+    return data;
   }
 
   // Local Storage Save
@@ -203,21 +240,25 @@ export const createOrUpdateReview = async (evalData, userSession = null) => {
 };
 
 export const deleteReview = async (reviewId) => {
-  if (isSupabaseConfigured() && supabase) {
-    try {
-      const { error } = await supabase
-        .from('reviews')
-        .delete()
-        .eq('id', reviewId);
+  const authenticatedUser = await getAuthenticatedUser().catch(() => null);
+  if (supabase && !authenticatedUser) {
+    throw new Error('Sua sessão expirou. Entre novamente para excluir a avaliação.');
+  }
+  if (authenticatedUser && isSupabaseConfigured() && supabase) {
+    const { data, error } = await supabase
+      .from('reviews')
+      .delete()
+      .eq('id', reviewId)
+      .eq('user_id', authenticatedUser.id)
+      .select('id')
+      .maybeSingle();
 
-      if (error) throw error;
-    } catch (err) {
-      console.warn('Erro ao deletar no Supabase, deletando local:', err);
-    }
+    if (error) throw error;
+    if (!data) throw new Error('A avaliação não foi encontrada ou não pertence à sua conta.');
   }
 
   const localReviews = getLocalReviews();
-  const updated = localReviews.filter((r) => r.id !== reviewId);
+  const updated = localReviews.filter((review) => review.id !== reviewId);
   saveLocalReviews(updated);
   return updated;
 };
@@ -246,32 +287,39 @@ export const fetchProfile = async (userSession) => {
   return getLocalProfile();
 };
 
-export const updateProfile = async (profileData) => {
-  if (isSupabaseConfigured() && supabase) {
-    try {
-      const payload = {
-        id: profileData.id,
-        username: profileData.username,
-        display_name: profileData.full_name || profileData.display_name || profileData.username,
-        avatar_url: profileData.avatar_url || '',
-        bio: profileData.bio || '',
-        favorite_artist: profileData.favorite_artist || '',
-        location: profileData.location || ''
-      };
+export const updateProfile = async (profileData, { strict = false } = {}) => {
+  const authenticatedUser = await getAuthenticatedUser().catch(() => null);
+  if (authenticatedUser && isSupabaseConfigured() && supabase) {
+    const payload = {
+      id: authenticatedUser.id,
+      username: profileData.username,
+      display_name: profileData.full_name || profileData.display_name || profileData.username,
+      avatar_url: profileData.avatar_url || '',
+      bio: profileData.bio || '',
+      location: profileData.location || '',
+      website: profileData.website || '',
+      favorite_artist: profileData.favorite_artist || '',
+      favorite_genres: profileData.favorite_genres || [],
+      is_public_reviews: profileData.is_public_reviews ?? true,
+      is_public_diary: profileData.is_public_diary ?? true,
+      allow_followers: profileData.allow_followers ?? true
+    };
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .upsert(payload)
-        .select();
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert(payload)
+      .select()
+      .single();
 
-      if (error) throw error;
-      if (data && data.length > 0) {
-        saveLocalProfile(data[0]);
-        return data[0];
-      }
-    } catch (err) {
-      console.warn('Erro ao salvar perfil no Supabase:', err);
+    if (error) {
+      console.warn('Erro ao salvar perfil no Supabase:', error);
+      if (strict) throw error;
+    } else if (data) {
+      saveLocalProfile(data);
+      return data;
     }
+  } else if (strict) {
+    throw new Error('Não foi possível salvar o perfil no Supabase. Entre novamente e tente outra vez.');
   }
 
   return saveLocalProfile(profileData);
@@ -362,8 +410,10 @@ export const fetchFollows = async (userId) => {
 };
 
 export const toggleFollowUser = async (currentUserId, targetUserId) => {
-  if (!currentUserId || !targetUserId || currentUserId === targetUserId) {
-    return { isFollowing: false, following: [] };
+  const authenticatedUser = await getAuthenticatedUser().catch(() => null);
+  if (!authenticatedUser || authenticatedUser.id !== currentUserId || !targetUserId || currentUserId === targetUserId) {
+    const following = currentUserId ? getLocalFollows(currentUserId) : [];
+    return { isFollowing: following.includes(targetUserId), following };
   }
 
   const currentFollowing = getLocalFollows(currentUserId);
@@ -381,19 +431,23 @@ export const toggleFollowUser = async (currentUserId, targetUserId) => {
   // Sync with Supabase if configured
   if (isSupabaseConfigured() && supabase) {
     try {
+      let result;
       if (isCurrentlyFollowing) {
-        await supabase
+        result = await supabase
           .from('follows')
           .delete()
           .eq('follower_id', currentUserId)
           .eq('following_id', targetUserId);
       } else {
-        await supabase
+        result = await supabase
           .from('follows')
           .insert({ follower_id: currentUserId, following_id: targetUserId });
       }
+      if (result.error) throw result.error;
     } catch (err) {
       console.warn('Erro ao sincronizar follow no Supabase:', err);
+      saveLocalFollows(currentUserId, currentFollowing);
+      return { isFollowing: isCurrentlyFollowing, following: currentFollowing, error: err };
     }
   }
 
@@ -432,7 +486,8 @@ export const fetchUserReviews = async (userId) => {
         .from('reviews')
         .select('*')
         .eq('user_id', userId)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
       if (!error && data) {
         return data;
       }
@@ -447,26 +502,26 @@ export const fetchUserReviews = async (userId) => {
  * Sincroniza avaliações salvas localmente para o Supabase caso tenham sido feitas offline
  */
 export const syncLocalReviewsToSupabase = async (userSession) => {
-  if (!userSession?.id || !isSupabaseConfigured() || !supabase) return [];
+  const authenticatedUser = await getAuthenticatedUser().catch(() => null);
+  if (!authenticatedUser?.id || authenticatedUser.id !== userSession?.id || !isSupabaseConfigured() || !supabase) return [];
   try {
-    const local = getLocalReviews();
-    if (!local || local.length === 0) return [];
+    const local = getLocalReviews() || [];
 
-    const { data: cloudReviews } = await supabase
+    const { data: cloudReviews, error: cloudError } = await supabase
       .from('reviews')
       .select('id')
-      .eq('user_id', userSession.id);
+      .eq('user_id', userSession.id)
+      .limit(200);
+    if (cloudError) throw cloudError;
 
     const cloudIds = new Set((cloudReviews || []).map((r) => r.id));
-    const toUpload = local.filter((r) => !cloudIds.has(r.id));
+    const toUpload = local.filter((r) => r.user_id === authenticatedUser.id && !cloudIds.has(r.id));
 
     if (toUpload.length > 0) {
       for (const rev of toUpload) {
         await createOrUpdateReview({
           ...rev,
-          user_id: userSession.id,
-          user_username: userSession.username,
-          user_name: userSession.full_name || userSession.username
+          user_id: authenticatedUser.id
         }, userSession);
       }
     }
@@ -474,16 +529,16 @@ export const syncLocalReviewsToSupabase = async (userSession) => {
     const { data: allFresh } = await supabase
       .from('reviews')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(200);
 
-    if (allFresh && allFresh.length > 0) {
-      saveLocalReviews(allFresh);
-      return allFresh;
-    }
+    if (!allFresh) throw new Error('Não foi possível atualizar as avaliações.');
+    saveLocalReviews(allFresh);
+    return allFresh;
   } catch (err) {
     console.warn('Erro na sincronização de reviews locais para Supabase:', err);
+    return getLocalReviews().filter((review) => review.user_id === authenticatedUser.id);
   }
-  return getLocalReviews();
 };
 
 /**
@@ -491,7 +546,8 @@ export const syncLocalReviewsToSupabase = async (userSession) => {
  */
 export const searchUsers = async (term, currentUserId = null) => {
   if (!term || !term.trim()) return [];
-  const normalized = term.toLowerCase().trim().replace(/^@/, '');
+  const normalized = term.toLowerCase().trim().replace(/^@/, '').replace(/[^\p{L}\p{N}_ -]/gu, '').trim();
+  if (!normalized) return [];
 
   let supabaseUsers = [];
   if (isSupabaseConfigured() && supabase) {

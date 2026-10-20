@@ -160,10 +160,13 @@ export function TrackDetailModal({
                     </button>
                     {onDeleteReview && (
                       <button
-                        onClick={() => {
-                          if (confirm('Deseja excluir sua avaliação desta música?')) {
-                            onDeleteReview(userReview.id);
+                        onClick={async () => {
+                          if (!confirm('Deseja excluir sua avaliação desta música?')) return;
+                          try {
+                            await onDeleteReview(userReview.id);
                             onClose();
+                          } catch (error) {
+                            window.alert(error.message || 'Não foi possível excluir a avaliação.');
                           }
                         }}
                         className="text-[#9E2A1B] underline"

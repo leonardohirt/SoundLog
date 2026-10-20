@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase, isSupabaseConfigured, updateProfile } from '../services/supabase';
+import { supabase, isSupabaseConfigured } from '../services/supabase';
 
 export function EditProfileModal({ profile, onClose, onSave }) {
   const [fullName, setFullName] = useState(profile?.full_name || profile?.display_name || '');
@@ -15,11 +15,6 @@ export function EditProfileModal({ profile, onClose, onSave }) {
   const [newGenre, setNewGenre] = useState('');
   const [showGenreInput, setShowGenreInput] = useState(false);
   
-  // Visibilidade
-  const [isPublicReviews, setIsPublicReviews] = useState(true);
-  const [isPublicDiary, setIsPublicDiary] = useState(true);
-  const [allowFollowers, setAllowFollowers] = useState(true);
-
   // Segurança
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -61,30 +56,34 @@ export function EditProfileModal({ profile, onClose, onSave }) {
       website,
       favorite_artist: favoriteArtist,
       favorite_genres: genres,
-      is_public_reviews: isPublicReviews,
-      is_public_diary: isPublicDiary,
-      allow_followers: allowFollowers,
       updated_at: new Date().toISOString()
     };
 
     try {
       if (isSupabaseConfigured() && supabase) {
-        await updateProfile(updated);
-
         // Se o usuário digitou uma nova senha
         if (newPassword) {
+          if (!currentPassword || !profile?.email) {
+            throw new Error('Informe sua senha atual para alterá-la.');
+          }
           if (newPassword.length < 8) {
             throw new Error('A nova senha deve ter no mínimo 8 caracteres.');
           }
           if (newPassword !== confirmNewPassword) {
             throw new Error('As novas senhas informadas não coincidem.');
           }
+          const { error: currentPasswordError } = await supabase.auth.signInWithPassword({
+            email: profile.email,
+            password: currentPassword
+          });
+          if (currentPasswordError) throw new Error('A senha atual está incorreta.');
+
           const { error: passErr } = await supabase.auth.updateUser({ password: newPassword });
           if (passErr) throw passErr;
         }
       }
 
-      onSave(updated);
+      await onSave(updated);
       setSavedSuccess(true);
       setTimeout(() => {
         setSavedSuccess(false);
@@ -296,50 +295,6 @@ export function EditProfileModal({ profile, onClose, onSave }) {
                 <p className="text-[11px] font-reading-serif text-[#888075]">Separados por vírgula para destaque na sua estante.</p>
               </div>
 
-              {/* Opções de Visibilidade */}
-              <div className="pt-3 border-t border-rule space-y-3">
-                <div className="font-mono-meta text-xs font-bold text-[#151413] uppercase">Opções de Privacidade:</div>
-
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isPublicReviews}
-                    onChange={(e) => setIsPublicReviews(e.target.checked)}
-                    className="checkbox-editorial"
-                  />
-                  <div>
-                    <div className="text-xs font-mono-meta font-bold text-[#151413]">Avaliações e resenhas públicas</div>
-                    <div className="text-xs font-reading-serif text-[#58534C]">Suas resenhas aparecem nas fichas de discos e no feed geral.</div>
-                  </div>
-                </label>
-
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isPublicDiary}
-                    onChange={(e) => setIsPublicDiary(e.target.checked)}
-                    className="checkbox-editorial"
-                  />
-                  <div>
-                    <div className="text-xs font-mono-meta font-bold text-[#151413]">Exibir histórico do diário de escuta</div>
-                    <div className="text-xs font-reading-serif text-[#58534C]">Visitantes podem consultar seu calendário de audições.</div>
-                  </div>
-                </label>
-
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={allowFollowers}
-                    onChange={(e) => setAllowFollowers(e.target.checked)}
-                    className="checkbox-editorial"
-                  />
-                  <div>
-                    <div className="text-xs font-mono-meta font-bold text-[#151413]">Permitir que outros membros sigam o perfil</div>
-                    <div className="text-xs font-reading-serif text-[#58534C]">Outros ouvintes acompanham suas novas publicações e listas.</div>
-                  </div>
-                </label>
-              </div>
-
             </div>
           </section>
 
@@ -358,9 +313,7 @@ export function EditProfileModal({ profile, onClose, onSave }) {
                   <span className="text-[10px] font-mono-meta text-[#888075] uppercase block">E-mail atual</span>
                   <span className="text-xs font-mono-meta font-bold text-[#151413]">{profile?.email || 'seu@email.com'}</span>
                 </div>
-                <button type="button" onClick={() => alert('Instruções enviadas para confirmação de novo e-mail.')} className="btn-editorial-secondary text-xs py-1.5">
-                  Alterar e-mail
-                </button>
+                <span className="text-[11px] font-mono-meta text-[#888075]">Alteração de e-mail indisponível no momento.</span>
               </div>
 
               {/* Alterar Senha */}
@@ -404,8 +357,18 @@ export function EditProfileModal({ profile, onClose, onSave }) {
                 <span>Sessão ativa neste navegador.</span>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
+                    if (!supabase) {
+                      setErrorMsg('Autenticação não está configurada.');
+                      return;
+                    }
+                    const { error } = await supabase.auth.signOut({ scope: 'global' });
+                    if (error) {
+                      setErrorMsg('Não foi possível encerrar as sessões. Tente novamente.');
+                      return;
+                    }
                     localStorage.removeItem('soundlog_session');
+                    sessionStorage.removeItem('soundlog_session');
                     window.location.reload();
                   }}
                   className="text-[#BA3822] hover:underline font-semibold"
@@ -414,31 +377,6 @@ export function EditProfileModal({ profile, onClose, onSave }) {
                 </button>
               </div>
 
-            </div>
-          </section>
-
-
-          {/* SEÇÃO 4: ZONA DE RISCO / EXCLUSÃO */}
-          <section className="pt-4 border-t-2 border-[#151413]">
-            <div className="p-4 border border-[#BA3822] bg-[#FDF2F0] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div className="space-y-1">
-                <div className="font-editorial-serif text-sm font-bold text-[#9E2A1B]">Encerrar e excluir conta</div>
-                <p className="font-reading-serif text-xs text-[#58534C] max-w-xl">
-                  Esta ação removerá permanentemente seu diário, resenhas escritas e listas catalogadas no Soundlog.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm('Tem certeza de que deseja excluir permanentemente sua conta no Soundlog? Esta ação não pode ser desfeita.')) {
-                    localStorage.clear();
-                    window.location.reload();
-                  }
-                }}
-                className="btn-editorial-secondary border-[#BA3822] text-[#9E2A1B] hover:bg-[#BA3822] hover:text-white text-xs py-2 shrink-0"
-              >
-                Excluir minha conta
-              </button>
             </div>
           </section>
 

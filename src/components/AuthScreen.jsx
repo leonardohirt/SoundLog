@@ -1,23 +1,29 @@
-import React, { useState } from 'react';
-import { supabase, isSupabaseConfigured, saveLocalProfile, updateProfile } from '../services/supabase';
+import React, { useEffect, useState } from 'react';
+import { supabase, isSupabaseConfigured, saveLocalProfile, updateProfile, isUsernameAvailable } from '../services/supabase';
 import logoImg from '../assets/logo.jpg';
 
-export function AuthScreen({ onLoginSuccess }) {
+export function AuthScreen({ onLoginSuccess, initialView = 'login', onPasswordRecoveryComplete }) {
 
-  const [view, setView] = useState('login'); // 'login' | 'cadastro' | 'recuperacao' | 'redefinicao'
+  const [view, setView] = useState(initialView); // 'login' | 'cadastro' | 'recuperacao' | 'redefinicao'
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [acceptTerms, setAcceptTerms] = useState(true);
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [resendTimer, setResendTimer] = useState(0);
+
+  useEffect(() => {
+    setView(initialView);
+    setErrorMsg('');
+    setSuccessMsg('');
+  }, [initialView]);
 
   // Força de senha
   const getPasswordStrength = (pass) => {
@@ -35,7 +41,7 @@ export function AuthScreen({ onLoginSuccess }) {
     setSuccessMsg('');
     setLoading(true);
 
-    const cleanUsername = username.trim().replace('@', '') || (email.split('@')[0] || 'ouvinte');
+    const cleanUsername = username.trim().replace('@', '').toLowerCase() || (email.split('@')[0] || 'ouvinte');
     const displayName = fullName.trim() || cleanUsername;
 
     try {
@@ -63,6 +69,11 @@ export function AuthScreen({ onLoginSuccess }) {
         }
 
         if (isSupabaseConfigured() && supabase) {
+          localStorage.setItem('soundlog_remember_session', String(rememberMe));
+          if (!(await isUsernameAvailable(cleanUsername))) {
+            throw new Error('Esse nome de usuário já está em uso. Escolha outro.');
+          }
+
           const { data, error } = await supabase.auth.signUp({
             email,
             password,
@@ -75,19 +86,33 @@ export function AuthScreen({ onLoginSuccess }) {
           });
 
           if (error) throw error;
+
+          if (!data.session) {
+            setSuccessMsg('Conta criada! Enviamos um link de confirmação para o seu e-mail. Confirme e depois entre.');
+            setPassword('');
+            setConfirmPassword('');
+            setView('login');
+            return;
+          }
           
           const user = data.user;
           const userSession = {
-            id: user ? user.id : 'usr-' + Date.now(),
+            id: user.id,
             email,
             full_name: displayName,
             username: cleanUsername,
             avatar_url: ''
           };
 
-          localStorage.setItem('soundlog_session', JSON.stringify(userSession));
+          if (rememberMe) {
+            localStorage.setItem('soundlog_session', JSON.stringify(userSession));
+            sessionStorage.removeItem('soundlog_session');
+          } else {
+            sessionStorage.setItem('soundlog_session', JSON.stringify(userSession));
+            localStorage.removeItem('soundlog_session');
+          }
           saveLocalProfile(userSession);
-          await updateProfile(userSession);
+          await updateProfile(userSession, { strict: true });
           onLoginSuccess(userSession);
         } else {
           throw new Error('O backend de autenticação (Supabase) não está configurado. Adicione as chaves no arquivo .env.');
@@ -100,11 +125,10 @@ export function AuthScreen({ onLoginSuccess }) {
           throw new Error('Por favor, informe seu e‑mail ou usuário e sua senha.');
         }
 
-        // Simple email or username format validation
+        // Supabase Auth accepts email addresses, not usernames.
         const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
-        const usernameValid = /^[a-z0-9_]{3,}$/.test(email);
-        if (!emailValid && !usernameValid) {
-          throw new Error('Formato de e‑mail ou nome de usuário inválido.');
+        if (!emailValid) {
+          throw new Error('Informe o e-mail da sua conta. O login por nome de usuário ainda não está disponível.');
         }
 
         // Minimum password length
@@ -113,6 +137,7 @@ export function AuthScreen({ onLoginSuccess }) {
         }
 
         if (isSupabaseConfigured() && supabase) {
+          localStorage.setItem('soundlog_remember_session', String(rememberMe));
           const { data, error } = await supabase.auth.signInWithPassword({
             email,
             password
@@ -136,8 +161,10 @@ export function AuthScreen({ onLoginSuccess }) {
 
           if (rememberMe) {
             localStorage.setItem('soundlog_session', JSON.stringify(userSession));
+            sessionStorage.removeItem('soundlog_session');
           } else {
             sessionStorage.setItem('soundlog_session', JSON.stringify(userSession));
+            localStorage.removeItem('soundlog_session');
           }
 
           saveLocalProfile(userSession);
@@ -153,12 +180,14 @@ export function AuthScreen({ onLoginSuccess }) {
           throw new Error('Por favor, informe um endereço de e-mail válido.');
         }
 
-        if (isSupabaseConfigured() && supabase) {
-          const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: window.location.origin
-          });
-          if (error) throw error;
+        if (!isSupabaseConfigured() || !supabase) {
+          throw new Error('Autenticação não está configurada. Não foi possível enviar as instruções.');
         }
+
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin
+        });
+        if (error) throw error;
 
         setSuccessMsg('Se existir uma conta associada a este e-mail, você receberá as instruções em alguns minutos.');
         setResendTimer(45);
@@ -175,10 +204,13 @@ export function AuthScreen({ onLoginSuccess }) {
         if (isSupabaseConfigured() && supabase) {
           const { error } = await supabase.auth.updateUser({ password });
           if (error) throw error;
+        } else {
+          throw new Error('Autenticação não está configurada. Não foi possível alterar a senha.');
         }
 
         setSuccessMsg('Sua senha foi alterada com sucesso! Você já pode entrar com sua nova senha.');
-        setTimeout(() => setView('login'), 2500);
+        await onPasswordRecoveryComplete?.();
+        setView('login');
       }
     } catch (err) {
       console.error(err);
@@ -307,13 +339,11 @@ export function AuthScreen({ onLoginSuccess }) {
               {/* CAMPO E-MAIL (Cadastro, Login e Recuperação) */}
               {view !== 'redefinicao' && (
                 <div className="space-y-1">
-                  <label className="font-mono-meta text-xs font-bold text-[#151413]">
-                    {view === 'login' ? 'E-mail ou nome de usuário' : 'E-mail'}
-                  </label>
+                  <label className="font-mono-meta text-xs font-bold text-[#151413]">E-mail</label>
                   <input
-                    type="text"
+                    type="email"
                     required
-                    placeholder={view === 'login' ? 'seu@email.com ou heitor_villa' : 'seu@email.com'}
+                    placeholder="seu@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="field-editorial"
@@ -441,30 +471,6 @@ export function AuthScreen({ onLoginSuccess }) {
             </form>
 
             {/* AUTENTICAÇÃO EXTERNA DISCRETA (Login & Cadastro) */}
-            {(view === 'login' || view === 'cadastro') && (
-              <div className="pt-4 border-t border-rule space-y-3">
-                <div className="text-[11px] font-mono-meta text-[#888075] text-center uppercase tracking-wider">
-                  OU ACESSE COM CONTA EXTERNA
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => alert('Integração com Spotify OAuth ativa via Client Credentials')}
-                    className="btn-editorial-secondary text-[11px] py-2"
-                  >
-                    Spotify ID
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => alert('Login com Google em desenvolvimento')}
-                    className="btn-editorial-secondary text-[11px] py-2"
-                  >
-                    Google
-                  </button>
-                </div>
-              </div>
-            )}
-
           </div>
 
           {/* COLUNA EDITORIAL LATERAL (Apenas no Cadastro Desktop) */}

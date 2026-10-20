@@ -10,6 +10,7 @@ export function OnboardingModal({ userSession, onFinish }) {
   const [genres, setGenres] = useState([]);
   const [favoriteArtist, setFavoriteArtist] = useState('');
   const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const availableGenres = [
     'MPB / Tropicália',
@@ -34,6 +35,7 @@ export function OnboardingModal({ userSession, onFinish }) {
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
+    setErrorMsg('');
 
     const updated = {
       ...userSession,
@@ -46,9 +48,14 @@ export function OnboardingModal({ userSession, onFinish }) {
       updated_at: new Date().toISOString()
     };
 
-    await updateProfile(updated);
-    setSaving(false);
-    onFinish(updated);
+    try {
+      await updateProfile(updated, { strict: true });
+      onFinish(updated);
+    } catch (error) {
+      setErrorMsg(error.message || 'Não foi possível salvar seu perfil.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSkip = () => {
@@ -89,6 +96,12 @@ export function OnboardingModal({ userSession, onFinish }) {
             Esta etapa é opcional. Você pode definir suas afinidades estéticas agora ou ajustar depois nas configurações.
           </p>
         </div>
+
+        {errorMsg && (
+          <div role="alert" className="p-3 border-l-4 border-[#BA3822] bg-[#FDF2F0] text-xs font-mono-meta text-[#9E2A1B]">
+            {errorMsg}
+          </div>
+        )}
 
         <form onSubmit={handleSave} className="space-y-6">
           

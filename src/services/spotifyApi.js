@@ -1,12 +1,6 @@
 // Soundlog Spotify API Service
 // Gerencia autenticação Client Credentials e endpoints de busca e detalhes de álbuns
 
-const DEFAULT_SPOTIFY_CLIENT_ID = '04d21aee3deb4796b0fe1272be69c0e7';
-const DEFAULT_SPOTIFY_CLIENT_SECRET = '8ad3015a5e4147bf8b5eaf4ce990168f';
-
-const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || DEFAULT_SPOTIFY_CLIENT_ID;
-const CLIENT_SECRET = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET || DEFAULT_SPOTIFY_CLIENT_SECRET;
-
 let cachedToken = null;
 let tokenExpiresAt = 0;
 
@@ -14,35 +8,25 @@ let tokenExpiresAt = 0;
  * Obtém ou renova o token de acesso da aplicação no Spotify
  */
 export const getSpotifyToken = async () => {
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    return null;
-  }
-
   if (cachedToken && Date.now() < tokenExpiresAt) {
     return cachedToken;
   }
 
   try {
-    const authHeader = btoa(`${CLIENT_ID}:${CLIENT_SECRET}`);
-    const response = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${authHeader}`
-      },
-      body: 'grant_type=client_credentials'
-    });
+    const response = await fetch('/api/spotify-token');
 
     if (!response.ok) {
-      throw new Error(`Falha ao obter token do Spotify: ${response.statusText}`);
+      return null;
     }
 
     const data = await response.json();
+    if (!data.access_token) return null;
+
     cachedToken = data.access_token;
-    tokenExpiresAt = Date.now() + (data.expires_in - 120) * 1000;
+    tokenExpiresAt = Date.now() + Math.max(0, data.expires_in - 60) * 1000;
     return cachedToken;
   } catch (error) {
-    console.error('Erro na autenticação com Spotify:', error);
+    console.warn('Token do Spotify indisponível, usando fallback:', error);
     return null;
   }
 };

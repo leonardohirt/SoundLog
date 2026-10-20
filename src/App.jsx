@@ -39,11 +39,16 @@ import {
 export default function App() {
   // 1. ESTADO DE SESSÃO DO USUÁRIO
   const [userSession, setUserSession] = useState(() => {
-    const saved = localStorage.getItem('soundlog_session');
-    return saved ? JSON.parse(saved) : null;
+    const saved = localStorage.getItem('soundlog_session') || sessionStorage.getItem('soundlog_session');
+    try {
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
 
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'explore' | 'reviews' | 'lists' | 'diary' | 'profile'
 
   // Dados do Catálogo & Usuário
@@ -94,21 +99,62 @@ export default function App() {
 
   // Sincronizar com Supabase Auth
   useEffect(() => {
-    if (supabase) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user) {
-          const userObj = {
-            id: session.user.id,
-            email: session.user.email,
-            full_name: session.user.user_metadata?.full_name || session.user.email.split('@')[0],
-            username: session.user.user_metadata?.username || session.user.email.split('@')[0],
-            avatar_url: session.user.user_metadata?.avatar_url || ''
-          };
-          localStorage.setItem('soundlog_session', JSON.stringify(userObj));
-          setUserSession(userObj);
-        }
-      });
-    }
+    if (!supabase) return undefined;
+
+    let active = true;
+    const clearLocalSession = () => {
+      localStorage.removeItem('soundlog_session');
+      sessionStorage.removeItem('soundlog_session');
+      setUserSession(null);
+      setProfile(null);
+      setReviews([]);
+      setLists([]);
+      setFollowingIds([]);
+    };
+
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (!active) return;
+      if (error || !session?.user) {
+        clearLocalSession();
+        return;
+      }
+
+      const user = session.user;
+      const userObj = {
+        id: user.id,
+        email: user.email,
+        full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || '',
+        username: user.user_metadata?.username || user.email?.split('@')[0] || '',
+        avatar_url: user.user_metadata?.avatar_url || ''
+      };
+      const sessionStorageTarget = localStorage.getItem('soundlog_remember_session') === 'false'
+        ? sessionStorage
+        : localStorage;
+      const otherSessionStorage = sessionStorageTarget === localStorage ? sessionStorage : localStorage;
+      sessionStorageTarget.setItem('soundlog_session', JSON.stringify(userObj));
+      otherSessionStorage.removeItem('soundlog_session');
+      setUserSession(userObj);
+    }).catch((error) => {
+      console.warn('Erro ao validar sessão Supabase:', error);
+      if (active) clearLocalSession();
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        localStorage.removeItem('soundlog_session');
+        sessionStorage.removeItem('soundlog_session');
+        setUserSession(null);
+        setIsPasswordRecovery(true);
+      } else if (event === 'SIGNED_OUT') {
+        clearLocalSession();
+        setIsPasswordRecovery(false);
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Carregar dados quando a sessão estiver ativa
@@ -134,14 +180,17 @@ export default function App() {
     setFollowingIds(follows || []);
     setFollowersCount(myFollowersCount || 0);
     setCommunityUsers(commUsers || []);
-    setProfile(prof || {
-      id: userSession.id,
-      full_name: userSession.full_name || userSession.username,
-      username: userSession.username,
-      avatar_url: userSession.avatar_url || '',
-      bio: '',
-      favorite_artist: '',
-      favorite_genres: []
+    setProfile({
+      ...(prof || {
+        id: userSession.id,
+        full_name: userSession.full_name || userSession.username,
+        username: userSession.username,
+        avatar_url: userSession.avatar_url || '',
+        bio: '',
+        favorite_artist: '',
+        favorite_genres: []
+      }),
+      email: userSession.email
     });
     setLists(getLocalLists());
     setLoading(false);
@@ -149,11 +198,7 @@ export default function App() {
 
   // Filtra estritamente as avaliações pessoais do usuário logado
   const myReviews = reviews.filter((r) => {
-    if (!userSession?.id) return true;
-    return (
-      r.user_id === userSession.id ||
-      (r.user_username && userSession.username && r.user_username.toLowerCase() === userSession.username.toLowerCase())
-    );
+    return Boolean(userSession?.id && r.user_id === userSession.id);
   });
 
   // Recalcular recomendações personalizadas sempre que houver novas avaliações ou alterações no perfil
@@ -185,6 +230,7 @@ export default function App() {
   const handleLogout = async () => {
     if (window.confirm('Deseja realmente sair da sua conta no Soundlog?')) {
       localStorage.removeItem('soundlog_session');
+      sessionStorage.removeItem('soundlog_session');
       if (supabase) {
         await supabase.auth.signOut();
       }
@@ -222,6 +268,7 @@ export default function App() {
     if (!userSession?.id || !targetUserId) return;
     const result = await toggleFollowUser(userSession.id, targetUserId);
     setFollowingIds(result.following);
+    return result;
   };
 
   // Handlers para Abertura de Avaliação
@@ -239,7 +286,7 @@ export default function App() {
 
   // Salvar avaliação / resenha
   const handleSaveReview = async (reviewData) => {
-    const saved = await createOrUpdateReview(reviewData, userSession);
+    await createOrUpdateReview(reviewData, userSession);
     const updated = await fetchReviews();
     setReviews(updated);
     setReviewItem(null);
@@ -250,6 +297,14 @@ export default function App() {
     await deleteReview(reviewId);
     const updated = await fetchReviews();
     setReviews(updated);
+  };
+
+  const handleDeleteReviewFromProfile = async (reviewId) => {
+    try {
+      await handleDeleteReview(reviewId);
+    } catch (error) {
+      window.alert(error.message || 'Não foi possível excluir a avaliação.');
+    }
   };
 
   // Salvar nova lista
@@ -267,7 +322,7 @@ export default function App() {
 
   // Salvar perfil
   const handleSaveProfile = async (updatedProfile) => {
-    await updateProfile(updatedProfile);
+    await updateProfile(updatedProfile, { strict: true });
     setProfile(updatedProfile);
     setShowEditProfile(false);
   };
@@ -275,9 +330,14 @@ export default function App() {
   // -------------------------------------------------------------------------
   // 1. SE NÃO HOUVER SESSÃO AUTENTICADA: APRESENTA EXCLUSIVAMENTE AUTH
   // -------------------------------------------------------------------------
-  if (!userSession) {
+  if (!userSession || isPasswordRecovery) {
     return (
       <AuthScreen
+        initialView={isPasswordRecovery ? 'redefinicao' : 'login'}
+        onPasswordRecoveryComplete={async () => {
+          if (supabase) await supabase.auth.signOut();
+          setIsPasswordRecovery(false);
+        }}
         onLoginSuccess={(session, isNewUser) => {
           setUserSession(session);
           if (isNewUser) {
@@ -927,7 +987,7 @@ export default function App() {
             onSelectUser={(u) => setSelectedUser(u)}
             onToggleFollow={handleToggleFollow}
             onOpenEditProfile={() => setShowEditProfile(true)}
-            onDeleteReview={handleDeleteReview}
+            onDeleteReview={handleDeleteReviewFromProfile}
             onOpenCreateList={() => setShowCreateList(true)}
             onNavigateTab={(tab) => setActiveTab(tab)}
           />
@@ -947,7 +1007,7 @@ export default function App() {
       {selectedAlbum && (
         <AlbumDetailModal
           album={selectedAlbum}
-          userReview={reviews.find(r => (r.item_type === 'album' || !r.item_type) && String(r.album_id) === String(selectedAlbum.album_id))}
+          userReview={reviews.find(r => r.user_id === userSession.id && (r.item_type === 'album' || !r.item_type) && String(r.album_id) === String(selectedAlbum.album_id))}
           allReviews={reviews}
           onClose={() => setSelectedAlbum(null)}
           onOpenReview={(alb) => handleOpenAlbumReview(alb)}
@@ -963,7 +1023,7 @@ export default function App() {
       {selectedTrack && (
         <TrackDetailModal
           track={selectedTrack}
-          userReview={reviews.find(r => r.item_type === 'track' && String(r.track_id) === String(selectedTrack.track_id))}
+          userReview={reviews.find(r => r.user_id === userSession.id && r.item_type === 'track' && String(r.track_id) === String(selectedTrack.track_id))}
           trackReviews={reviews.filter(r => r.item_type === 'track' && String(r.track_id) === String(selectedTrack.track_id))}
           onClose={() => setSelectedTrack(null)}
           onOpenReview={(tr) => handleOpenTrackReview(tr)}
@@ -998,6 +1058,7 @@ export default function App() {
           item={reviewItem}
           type={reviewType}
           existingReview={reviews.find(r => {
+            if (r.user_id !== userSession.id) return false;
             if (reviewType === 'track') {
               return r.item_type === 'track' && String(r.track_id) === String(reviewItem.track_id);
             }

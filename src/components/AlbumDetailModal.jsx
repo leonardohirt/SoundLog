@@ -133,9 +133,12 @@ export function AlbumDetailModal({
                     </button>
                     {onDeleteReview && (
                       <button
-                        onClick={() => {
-                          if (confirm('Deseja excluir a avaliação deste álbum?')) {
-                            onDeleteReview(userReview.id);
+                        onClick={async () => {
+                          if (!confirm('Deseja excluir a avaliação deste álbum?')) return;
+                          try {
+                            await onDeleteReview(userReview.id);
+                          } catch (error) {
+                            window.alert(error.message || 'Não foi possível excluir a avaliação.');
                           }
                         }}
                         className="text-[#9E2A1B] underline"
